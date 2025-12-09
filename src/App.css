@@ -1,42 +1,162 @@
-#root {
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* Additional component-specific styling for Real App aesthetic */
+
+/* Page containers */
+.favorites-page,
+.highlights-page,
+.home-page {
+  padding: 2rem 0;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
+/* Card hover effects */
 .card {
-  padding: 2em;
+  transition: all 0.2s ease;
 }
 
-.read-the-docs {
-  color: #888;
+.card:hover {
+  transform: translateY(-2px);
+}
+
+/* Team selection cards */
+.team-card {
+  border-radius: 16px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.team-card:hover {
+  border-color: #667eea;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
+}
+
+.team-card.selected {
+  border-color: #667eea;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+}
+
+.team-placeholder {
+  background-color: var(--border-color);
+  color: var(--text-muted);
+}
+
+/* Highlight cards */
+.highlight-card {
+  border-radius: 16px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.highlight-card:hover {
+  transform: translateY(-4px);
+}
+
+/* Game cards */
+.game-card {
+  border-radius: 16px;
+  transition: all 0.2s ease;
+}
+
+.game-card:hover {
+  transform: translateY(-2px);
+}
+
+.game-score-container {
+  padding: 0.75rem;
+  background-color: var(--bg-tertiary);
+  border-radius: 12px;
+}
+
+.game-score {
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* Form select styling */
+.form-select {
+  cursor: pointer;
+}
+
+.form-select:hover {
+  border-color: var(--border-color);
+}
+
+/* Button groups */
+.btn-group {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Spacing adjustments */
+.gap-2 {
+  gap: 0.75rem !important;
+}
+
+.gap-3 {
+  gap: 1rem !important;
+}
+
+/* Custom scrollbar for web */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Loading spinner container */
+.text-center {
+  padding: 3rem 0;
+}
+
+/* Empty state styling */
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+}
+
+.empty-state h3 {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+/* Comment section */
+.comment-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Responsive adjustments for web */
+@media (min-width: 1200px) {
+  .app-container {
+    padding: 3rem 4rem;
+  }
+}
+
+/* Smooth transitions for all interactive elements */
+a, button, .card, .nav-link, .form-control, .form-select {
+  transition: all 0.2s ease;
+}
+
+/* Focus states for accessibility */
+button:focus-visible,
+a:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible {
+  outline: 3px solid rgba(102, 126, 234, 0.5);
+  outline-offset: 2px;
 }

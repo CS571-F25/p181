@@ -1,11 +1,20 @@
-import React, { createContext, useState, useContext } from "react";
+import React, { createContext, useState, useContext, useEffect } from "react";
 
 // Create the context
 const SelectedTeamsContext = createContext();
 
 // Provider component
 export function SelectedTeamsProvider({ children }) {
-  const [selectedTeams, setSelectedTeams] = useState([]);
+  // Load from localStorage on mount
+  const [selectedTeams, setSelectedTeams] = useState(() => {
+    const saved = localStorage.getItem("selectedTeams");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Save to localStorage whenever selectedTeams changes
+  useEffect(() => {
+    localStorage.setItem("selectedTeams", JSON.stringify(selectedTeams));
+  }, [selectedTeams]);
 
   // Function to toggle a team
   const toggleTeam = (teamAbbr) => {
@@ -16,9 +25,14 @@ export function SelectedTeamsProvider({ children }) {
     );
   };
 
+  // Check if a team is selected
+  const isTeamSelected = (teamAbbr) => {
+    return selectedTeams.includes(teamAbbr);
+  };
+
   return (
     <SelectedTeamsContext.Provider
-      value={{ selectedTeams, setSelectedTeams, toggleTeam }}
+      value={{ selectedTeams, setSelectedTeams, toggleTeam, isTeamSelected }}
     >
       {children}
     </SelectedTeamsContext.Provider>
