@@ -21,21 +21,41 @@
       // For example, if your app is served from https://username.github.io/repo-name/,
       // then set pathSegmentsToKeep to 1, so the route /one/two will be replaced
       // with /repo-name/?/one/two instead of /?/one/two.
+      // Single Page Apps for GitHub Pages
+      // https://github.com/rafgraph/spa-github-pages
+      // This script takes the current url and converts the path and query
+      // string into just a query string, and then redirects the browser
+      // to the new url with only a query string and hash fragment,
+      // e.g., https://www.foo.tld/p181/one/two?a=b&c=d#qwe, becomes
+      // https://www.foo.tld/p181/?/one/two&a=b~and~c=d#qwe
+      // Note: this 404.html file must be at least 512 bytes for it to work
+      // with Internet Explorer (it is currently > 512 bytes)
+
       // For /p181/ base path, we keep 1 segment (p181)
       var pathSegmentsToKeep = 1;
 
       var l = window.location;
+      
+      // Ensure base path always has trailing slash
+      var basePath = "/p181/";
+      
+      // Get current path segments
+      var pathSegments = l.pathname.split("/").filter(function(segment) {
+        return segment.length > 0;
+      });
+      
+      // Build redirect URL
+      var redirectPath = basePath + "?/" + 
+        (pathSegments.length > pathSegmentsToKeep 
+          ? pathSegments.slice(pathSegmentsToKeep).join("/") 
+          : "").replace(/&/g, "~and~");
+      
       l.replace(
         l.protocol +
           "//" +
           l.hostname +
           (l.port ? ":" + l.port : "") +
-          l.pathname
-            .split("/")
-            .slice(0, 1 + pathSegmentsToKeep)
-            .join("/") +
-          "/?/" +
-          l.pathname.slice(1).split("/").slice(pathSegmentsToKeep).join("/").replace(/&/g, "~and~") +
+          redirectPath +
           (l.search ? "&" + l.search.slice(1).replace(/&/g, "~and~") : "") +
           l.hash
       );

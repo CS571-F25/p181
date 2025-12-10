@@ -1,11 +1,22 @@
 import { useState, useEffect } from "react";
 import { Card, Row, Col } from "react-bootstrap";
+import { useNavigate } from "react-router-dom";
 import HighlightCard from "./HighlightCard";
 import LoadingSpinner from "./LoadingSpinner";
 
 export default function FavoritesList() {
   const [favoriteHighlights, setFavoriteHighlights] = useState([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  
+  const handleHighlightClick = (highlight) => {
+    // Navigate to home page and set league filter if available
+    if (highlight.strLeague || highlight.league) {
+      navigate(`/?league=${encodeURIComponent(highlight.strLeague || highlight.league)}`);
+    } else {
+      navigate('/');
+    }
+  };
 
   const loadFavorites = () => {
     // Load favorites from localStorage
@@ -81,15 +92,29 @@ export default function FavoritesList() {
           const highlightId = highlight.idEvent || highlight.highlightId || highlight;
           return (
             <Col key={highlightId} md={6} lg={4} className="mb-4">
-              <HighlightCard
-                title={highlight.strEvent || highlight.title || "Favorite Highlight"}
-                description={highlight.strDescription || highlight.description || "One of your favorite highlights"}
-                videoUrl={highlight.strVideo || highlight.videoUrl || "https://www.youtube.com"}
-                highlightId={highlightId}
-                date={highlight.dateEvent || highlight.date}
-                thumbnail={highlight.strThumb || highlight.thumbnail}
-                league={highlight.strLeague || highlight.league}
-              />
+              <div 
+                onClick={() => handleHighlightClick(highlight)}
+                style={{ cursor: 'pointer' }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleHighlightClick(highlight);
+                  }
+                }}
+                aria-label={`View ${highlight.strEvent || highlight.title} highlights`}
+              >
+                <HighlightCard
+                  title={highlight.strEvent || highlight.title || "Favorite Highlight"}
+                  description={highlight.strDescription || highlight.description || "One of your favorite highlights"}
+                  videoUrl={highlight.strVideo || highlight.videoUrl || "https://www.youtube.com"}
+                  highlightId={highlightId}
+                  date={highlight.dateEvent || highlight.date}
+                  thumbnail={highlight.strThumb || highlight.thumbnail}
+                  league={highlight.strLeague || highlight.league}
+                />
+              </div>
             </Col>
           );
         })}

@@ -34,7 +34,7 @@ export default function HighlightCard({
             })}
           </Card.Subtitle>
         )}
-        <Card.Text>{description}</Card.Text>
+        {description && <Card.Text>Highlight</Card.Text>}
         <div className="d-flex gap-2 flex-wrap mb-3">
           <Button 
             variant="primary" 

@@ -1,10 +1,22 @@
-import { Navbar, Nav, Container, Button } from "react-bootstrap";
+import { Navbar, Nav, Container } from "react-bootstrap";
 import { Link } from "react-router-dom";
-import { useTheme } from "../contexts/ThemeContext";
-import { FaMoon, FaSun } from "react-icons/fa";
+import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
+import NFLTeamLogo from "./NFLTeamLogo";
+import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
+import { useState, useEffect } from "react";
+import { TEAMS } from "../sports";
 
 function AppNavbar() {
-  const { theme, toggleTheme } = useTheme();
+  const { selectedTeams } = useSelectedTeams();
+  const [teamLogos, setTeamLogos] = useState({});
+
+  useEffect(() => {
+    const loadLogos = async () => {
+      const logos = await loadTeamLogosFromGitHub();
+      setTeamLogos(logos || {});
+    };
+    loadLogos();
+  }, []);
 
   return (
     <Navbar bg="dark" variant="dark" expand="lg" className="w-100">
@@ -23,24 +35,62 @@ function AppNavbar() {
             <Nav.Link as={Link} to="/favorites">Favorites</Nav.Link>
             <Nav.Link as={Link} to="/about">About</Nav.Link>
           </Nav>
-          <Nav>
-            <Button
-              variant="outline-light"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-              style={{
-                borderRadius: "12px",
-                padding: "0.5rem 1rem",
-                marginLeft: "1rem",
-                border: "2px solid rgba(255, 255, 255, 0.3)",
-                transition: "all 0.2s ease"
-              }}
-            >
-              {theme === "light" ? <FaMoon /> : <FaSun />}
-              <span className="ms-2 d-none d-md-inline">
-                {theme === "light" ? "Dark" : "Light"} Mode
-              </span>
-            </Button>
+          <Nav className="align-items-center">
+            {/* Favorite Team Logos */}
+            {selectedTeams.length > 0 && (
+              <div className="d-flex align-items-center me-3" style={{ gap: "0.5rem" }}>
+                {selectedTeams.slice(0, 5).map((teamKey) => {
+                  const [teamAbbr, league] = teamKey.split("-");
+                  const teamData = TEAMS[league]?.find(t => t.abbreviation === teamAbbr);
+                  
+                  return (
+                    <div
+                      key={teamKey}
+                      style={{
+                        width: "32px",
+                        height: "32px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "8px",
+                        overflow: "hidden"
+                      }}
+                      title={teamData?.name || teamAbbr}
+                    >
+                      {league === "NFL" ? (
+                        <NFLTeamLogo teamAbbr={teamAbbr} size={32} />
+                      ) : teamLogos[teamKey] ? (
+                        <img
+                          src={teamLogos[teamKey]}
+                          alt={`${teamData?.name || teamAbbr} logo`}
+                          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.7rem",
+                            backgroundColor: "rgba(255, 255, 255, 0.1)",
+                            color: "white"
+                          }}
+                        >
+                          {teamAbbr}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {selectedTeams.length > 5 && (
+                  <span className="text-light" style={{ fontSize: "0.8rem" }}>
+                    +{selectedTeams.length - 5}
+                  </span>
+                )}
+              </div>
+            )}
           </Nav>
         </Navbar.Collapse>
       </Container>

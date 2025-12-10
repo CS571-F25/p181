@@ -10,6 +10,9 @@
 /* Card hover effects */
 .card {
   transition: all 0.2s ease;
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
 }
 
 .card:hover {
@@ -25,14 +28,14 @@
 }
 
 .team-card:hover {
-  border-color: #667eea;
+  border-color: var(--primary-color);
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
+  box-shadow: 0 8px 24px var(--shadow-hover);
 }
 
 .team-card.selected {
-  border-color: #667eea;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border-color: var(--primary-color);
+  background: var(--bg-gradient-selected);
 }
 
 .team-placeholder {

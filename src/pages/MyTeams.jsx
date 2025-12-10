@@ -1,14 +1,34 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { TEAMS, LEAGUES } from "../sports";
 import { Container, Row, Col, Card, Form } from "react-bootstrap";
 import { FaCheckCircle, FaSearch } from "react-icons/fa";
 import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
+import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
+import NFLTeamLogo from "../components/NFLTeamLogo";
+import NHLTeamLogo from "../components/NHLTeamLogo";
+import MLBTeamLogo from "../components/MLBTeamLogo";
 
 export default function MyTeams() {
   const { selectedTeams, toggleTeam, isTeamSelected } = useSelectedTeams();
   const [searchQuery, setSearchQuery] = useState("");
-
   const teamKey = (teamAbbr, league) => `${teamAbbr}-${league}`;
+  const [teamLogos, setTeamLogos] = useState({}); // Cache for team logos
+
+  // Load team logos from GitHub database on mount
+  useEffect(() => {
+    const loadLogos = async () => {
+      try {
+        const logos = await loadTeamLogosFromGitHub();
+        if (logos) {
+          setTeamLogos(logos);
+        }
+      } catch (error) {
+        console.error("Error loading team logos:", error);
+      }
+    };
+    
+    loadLogos();
+  }, []); // Only run once on mount
 
   // Filter teams based on search query
   const filteredTeams = useMemo(() => {
@@ -110,21 +130,61 @@ export default function MyTeams() {
                       aria-pressed={isSelected}
                       aria-label={`${isSelected ? "Deselect" : "Select"} ${team.name}`}
                     >
-                      {/* Team Image placeholder */}
+                      {/* Team Logo or Placeholder */}
                       <div 
-                        className="team-placeholder"
                         style={{ 
                           height: "100px", 
                           marginBottom: "0.75rem", 
-                          borderRadius: "12px",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: "0.875rem"
+                          borderRadius: "12px"
                         }}
-                        aria-hidden="true"
                       >
-                        {team.abbreviation}
+                        {league === "NFL" ? (
+                          <NFLTeamLogo teamAbbr={team.abbreviation} size={100} />
+                        ) : league === "NHL" ? (
+                          <NHLTeamLogo teamAbbr={team.abbreviation} size={100} />
+                        ) : league === "MLB" ? (
+                          <MLBTeamLogo teamAbbr={team.abbreviation} size={100} />
+                        ) : teamLogos[teamKey(team.abbreviation, league)] ? (
+                          <img
+                            src={teamLogos[teamKey(team.abbreviation, league)]}
+                            alt={`${team.name} logo`}
+                            style={{ 
+                              height: "100px", 
+                              width: "100%",
+                              objectFit: "contain",
+                              borderRadius: "12px"
+                            }}
+                            onError={(e) => {
+                              // Hide image and show placeholder if it fails to load
+                              e.target.style.display = "none";
+                              const placeholder = e.target.parentElement.querySelector('.team-placeholder');
+                              if (placeholder) {
+                                placeholder.style.display = "flex";
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div 
+                            className="team-placeholder"
+                            style={{ 
+                              height: "100px", 
+                              width: "100%",
+                              borderRadius: "12px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "0.875rem",
+                              backgroundColor: "var(--border-color)",
+                              color: "var(--text-muted)"
+                            }}
+                            aria-hidden="true"
+                          >
+                            {team.abbreviation}
+                          </div>
+                        )}
                       </div>
 
                       {/* Team Name */}

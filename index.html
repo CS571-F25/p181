@@ -11,6 +11,12 @@
       crossorigin="anonymous"
       />
     <title>p181-project</title>
+    <script>
+      // Redirect /p181 to /p181/ to ensure trailing slash
+      if (window.location.pathname === '/p181' && !window.location.pathname.endsWith('/')) {
+        window.location.replace('/p181/');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

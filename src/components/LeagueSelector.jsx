@@ -9,7 +9,7 @@ export default function LeagueSelector({ selectedLeague, setSelectedLeague, id, 
       style={{ width: "25vw", minWidth: "200px" }}
       aria-label="Select a sports league"
     >
-      <option value="">{includeAll ? "All Leagues" : "Select a League"}</option>
+      <option value="">All Leagues</option>
       <option value="NFL">NFL</option>
       <option value="NBA">NBA</option>
       <option value="NHL">NHL</option>

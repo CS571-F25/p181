@@ -10,9 +10,12 @@ export default function HighlightList({ highlights, league }) {
     );
   }
 
+  // Only show up to 5 highlights if available
+  const highlightsToShow = highlights.slice(0, 5);
+
   return (
     <Row>
-      {highlights.map((highlight, index) => {
+      {highlightsToShow.map((highlight, index) => {
         // Create a unique key by combining ID, title, and index to ensure uniqueness
         const uniqueKey = `${highlight.idEvent || highlight.id || 'highlight'}-${highlight.strEvent || highlight.title || index}-${index}`;
         
@@ -20,7 +23,7 @@ export default function HighlightList({ highlights, league }) {
           <Col key={uniqueKey} xs={12} md={6} lg={4} className="mb-3">
             <HighlightCard
               title={highlight.strEvent || highlight.title || "Game Highlights"}
-              description={highlight.strDescription || highlight.description || `Recent ${league} highlights`}
+              description={league === "MLB" ? "" : (highlight.strDescriptionEN || highlight.strDescription || highlight.description || `Recent ${league} highlights`)}
               videoUrl={highlight.strVideo || highlight.videoUrl || "#"}
               highlightId={highlight.idEvent || highlight.id || `highlight-${index}`}
               league={league}
