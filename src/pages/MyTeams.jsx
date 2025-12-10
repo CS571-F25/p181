@@ -5,8 +5,6 @@ import { FaCheckCircle, FaSearch } from "react-icons/fa";
 import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
 import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
 import NFLTeamLogo from "../components/NFLTeamLogo";
-import NHLTeamLogo from "../components/NHLTeamLogo";
-import MLBTeamLogo from "../components/MLBTeamLogo";
 
 export default function MyTeams() {
   const { selectedTeams, toggleTeam, isTeamSelected } = useSelectedTeams();
@@ -143,10 +141,6 @@ export default function MyTeams() {
                       >
                         {league === "NFL" ? (
                           <NFLTeamLogo teamAbbr={team.abbreviation} size={100} />
-                        ) : league === "NHL" ? (
-                          <NHLTeamLogo teamAbbr={team.abbreviation} size={100} />
-                        ) : league === "MLB" ? (
-                          <MLBTeamLogo teamAbbr={team.abbreviation} size={100} />
                         ) : teamLogos[teamKey(team.abbreviation, league)] ? (
                           <img
                             src={teamLogos[teamKey(team.abbreviation, league)]}
