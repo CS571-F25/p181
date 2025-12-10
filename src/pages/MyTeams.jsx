@@ -4,7 +4,6 @@ import { Container, Row, Col, Card, Form } from "react-bootstrap";
 import { FaCheckCircle, FaSearch } from "react-icons/fa";
 import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
 import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
-import NFLTeamLogo from "../components/NFLTeamLogo";
 
 export default function MyTeams() {
   const { selectedTeams, toggleTeam, isTeamSelected } = useSelectedTeams();
@@ -49,7 +48,7 @@ export default function MyTeams() {
 
   return (
     <Container fluid className="my-teams-page">
-      <h1>Select your favorite teams below!</h1>
+        <h1>Select your favorite teams below!</h1>
       <p className="lead">Choose teams from any league to personalize your experience</p>
       
       {/* Search Bar */}
@@ -95,7 +94,7 @@ export default function MyTeams() {
 
         return (
           <div key={league} className="league-section">
-            {/* League Header */}
+          {/* League Header */}
             <h2 className="mb-4">
               {league}
               {searchQuery && (
@@ -105,7 +104,7 @@ export default function MyTeams() {
               )}
             </h2>
 
-            {/* Teams Grid */}
+          {/* Teams Grid */}
             <Row className="g-4 mb-5">
               {teamsToShow.map((team) => {
                 const key = teamKey(team.abbreviation, league);
@@ -113,7 +112,7 @@ export default function MyTeams() {
                 
                 return (
                   <Col key={key} xs={6} sm={4} md={3} lg={2}>
-                    <Card
+                <Card
                       className={`text-center team-card ${isSelected ? "selected" : ""}`}
                       style={{ cursor: "pointer", padding: "1rem" }}
                       onClick={() => toggleTeam(key)}
@@ -139,9 +138,7 @@ export default function MyTeams() {
                           borderRadius: "12px"
                         }}
                       >
-                        {league === "NFL" ? (
-                          <NFLTeamLogo teamAbbr={team.abbreviation} size={100} />
-                        ) : teamLogos[teamKey(team.abbreviation, league)] ? (
+                        {teamLogos[teamKey(team.abbreviation, league)] ? (
                           <img
                             src={teamLogos[teamKey(team.abbreviation, league)]}
                             alt={`${team.name} logo`}
@@ -179,24 +176,24 @@ export default function MyTeams() {
                             {team.abbreviation}
                           </div>
                         )}
-                      </div>
+                  </div>
 
-                      {/* Team Name */}
+                  {/* Team Name */}
                       <Card.Body className="p-0">
                         <Card.Title style={{ fontSize: "0.9rem", marginBottom: "0.5rem" }}>
                           {team.name}
                         </Card.Title>
 
-                        {/* Checkmark if selected */}
+                    {/* Checkmark if selected */}
                         {isSelected && (
                           <FaCheckCircle color="#48bb78" size={20} aria-label="Selected" />
-                        )}
-                      </Card.Body>
-                    </Card>
-                  </Col>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Col>
                 );
               })}
-            </Row>
+          </Row>
           </div>
         );
       })}

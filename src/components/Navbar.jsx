@@ -1,7 +1,6 @@
 import { Navbar, Nav, Container } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
-import NFLTeamLogo from "./NFLTeamLogo";
 import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
 import { useState, useEffect } from "react";
 import { TEAMS } from "../sports";
@@ -57,9 +56,7 @@ function AppNavbar() {
                       }}
                       title={teamData?.name || teamAbbr}
                     >
-                      {league === "NFL" ? (
-                        <NFLTeamLogo teamAbbr={teamAbbr} size={32} />
-                      ) : teamLogos[teamKey] ? (
+                      {teamLogos[teamKey] ? (
                         <img
                           src={teamLogos[teamKey]}
                           alt={`${teamData?.name || teamAbbr} logo`}
