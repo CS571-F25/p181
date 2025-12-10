@@ -21,20 +21,14 @@ export default function ScheduleCard({ games, league, title = "Upcoming Games" }
     if (!game || typeof game !== 'object') return false;
     
     // Validate game structure matches expected league format
+    // All leagues now use TheSportsDB structure: strHomeTeam, strAwayTeam
     switch (league) {
       case "NBA":
-        // NBA games must have home_team and visitor_team
-        return !!(game.home_team && game.visitor_team);
       case "NFL":
+      case "MLB":
+      case "NHL":
         // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore
         return !!(game.strHomeTeam && game.strAwayTeam);
-      case "MLB":
-        // API-Sports structure: game has nested game.game, game.teams, game.scores
-        // Check for either the nested structure or flat structure
-        return !!(game.teams?.home && game.teams?.away) || !!(game.game && game.teams);
-      case "NHL":
-        // NHL games must have teams.home.team and teams.away.team
-        return !!(game.teams?.home?.team && game.teams?.away?.team);
       default:
         return true;
     }
@@ -84,22 +78,25 @@ export default function ScheduleCard({ games, league, title = "Upcoming Games" }
         team.name === awayTeam || team.fullName === awayTeam
       );
     } else if (league === "NBA") {
-      const homeName = game.home_team?.full_name || game.home_team?.name;
-      const visitorName = game.visitor_team?.full_name || game.visitor_team?.name;
+      // TheSportsDB structure: strHomeTeam, strAwayTeam
+      const homeName = game.strHomeTeam;
+      const awayName = game.strAwayTeam;
       isFavoriteGame = favoriteTeamInfo.some(team => 
         team.name === homeName || team.fullName === homeName ||
-        team.name === visitorName || team.fullName === visitorName
+        team.name === awayName || team.fullName === awayName
       );
     } else if (league === "MLB") {
-      const homeName = game.teams?.home?.name;
-      const awayName = game.teams?.away?.name;
+      // TheSportsDB structure: strHomeTeam, strAwayTeam
+      const homeName = game.strHomeTeam;
+      const awayName = game.strAwayTeam;
       isFavoriteGame = favoriteTeamInfo.some(team => 
         team.name === homeName || team.fullName === homeName ||
         team.name === awayName || team.fullName === awayName
       );
     } else if (league === "NHL") {
-      const homeName = game.teams?.home?.team?.name;
-      const awayName = game.teams?.away?.team?.name;
+      // TheSportsDB structure: strHomeTeam, strAwayTeam
+      const homeName = game.strHomeTeam;
+      const awayName = game.strAwayTeam;
       isFavoriteGame = favoriteTeamInfo.some(team => 
         team.name === homeName || team.fullName === homeName ||
         team.name === awayName || team.fullName === awayName
@@ -114,7 +111,7 @@ export default function ScheduleCard({ games, league, title = "Upcoming Games" }
   });
 
   // Prioritize favorite games - show them first
-  const prioritizedGames = [...favoriteGames, ...otherGames].slice(0, league === "NFL" ? 20 : 5);
+  const prioritizedGames = [...favoriteGames, ...otherGames].slice(0, 20);
 
   return (
     <Card>

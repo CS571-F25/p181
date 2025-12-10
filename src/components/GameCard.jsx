@@ -10,16 +10,11 @@ export default function GameCard({ game, league }) {
   const isValidForLeague = () => {
     switch (league) {
       case "NBA":
-        // NBA games should have home_team and visitor_team (not teams.home/teams.away)
-        return !!(game.home_team && game.visitor_team);
       case "NFL":
       case "MLB":
-        // API-Sports structure: game has nested game.game, game.teams, game.scores
-        // Check for either the nested structure or flat structure
-        return !!(game.teams?.home && game.teams?.away) || !!(game.game && game.teams);
       case "NHL":
-        // NHL games should have teams.home.team and teams.away.team
-        return !!(game.teams?.home?.team && game.teams?.away?.team);
+        // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore
+        return !!(game.strHomeTeam && game.strAwayTeam);
       default:
         return true;
     }
@@ -91,16 +86,16 @@ export default function GameCard({ game, league }) {
   const getGameInfo = () => {
     switch (league) {
       case "NBA":
-        // Ball Don't Lie API: date is YYYY-MM-DD, datetime is ISO format
-        // Prefer datetime for display, fall back to date
-        const gameDate = game.datetime || game.date || game.game_date || game.scheduled;
+        // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore
+        const nbaDate = game.dateEventLocal || game.dateEvent;
+        const nbaTime = game.strTimeLocal || "00:00:00";
         return {
-          homeTeam: game.home_team?.full_name || game.home_team?.name || "Home Team",
-          awayTeam: game.visitor_team?.full_name || game.visitor_team?.name || "Away Team",
-          homeScore: game.home_team_score,
-          awayScore: game.visitor_team_score,
-          status: getStatusString(game.status),
-          date: gameDate,
+          homeTeam: game.strHomeTeam || "Home Team",
+          awayTeam: game.strAwayTeam || "Away Team",
+          homeScore: game.intHomeScore !== null && game.intHomeScore !== "" ? parseInt(game.intHomeScore) : null,
+          awayScore: game.intAwayScore !== null && game.intAwayScore !== "" ? parseInt(game.intAwayScore) : null,
+          status: getStatusString(game.strStatus || "Final"),
+          date: nbaDate ? `${nbaDate}T${nbaTime}` : null,
         };
       case "NFL":
         // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore, dateEventLocal, strTimeLocal
@@ -117,34 +112,28 @@ export default function GameCard({ game, league }) {
           date: nflDate,
         };
       case "MLB":
-        // API-Sports structure: game.game.date, game.status, game.teams, game.scores
-        // scores might be objects or numbers
-        const mlbDate = game.game?.date?.date || game.game?.date?.timestamp || game.date;
-        const mlbHomeScoreObj = game.scores?.home;
-        const mlbAwayScoreObj = game.scores?.away;
-        const mlbHomeScore = typeof mlbHomeScoreObj === 'object' && mlbHomeScoreObj !== null
-          ? (mlbHomeScoreObj.total ?? mlbHomeScoreObj.runs ?? null)
-          : (mlbHomeScoreObj ?? null);
-        const mlbAwayScore = typeof mlbAwayScoreObj === 'object' && mlbAwayScoreObj !== null
-          ? (mlbAwayScoreObj.total ?? mlbAwayScoreObj.runs ?? null)
-          : (mlbAwayScoreObj ?? null);
-        
+        // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore
+        const mlbDate = game.dateEventLocal || game.dateEvent;
+        const mlbTime = game.strTimeLocal || "00:00:00";
         return {
-          homeTeam: game.teams?.home?.name || "Home Team",
-          awayTeam: game.teams?.away?.name || "Away Team",
-          homeScore: mlbHomeScore,
-          awayScore: mlbAwayScore,
-          status: getStatusString(game.game?.status || game.status),
-          date: mlbDate,
+          homeTeam: game.strHomeTeam || "Home Team",
+          awayTeam: game.strAwayTeam || "Away Team",
+          homeScore: game.intHomeScore !== null && game.intHomeScore !== "" ? parseInt(game.intHomeScore) : null,
+          awayScore: game.intAwayScore !== null && game.intAwayScore !== "" ? parseInt(game.intAwayScore) : null,
+          status: getStatusString(game.strStatus || "Final"),
+          date: mlbDate ? `${mlbDate}T${mlbTime}` : null,
         };
       case "NHL":
+        // TheSportsDB structure: strHomeTeam, strAwayTeam, intHomeScore, intAwayScore
+        const nhlDate = game.dateEventLocal || game.dateEvent;
+        const nhlTime = game.strTimeLocal || "00:00:00";
         return {
-          homeTeam: game.teams?.home?.team?.name || "Home Team",
-          awayTeam: game.teams?.away?.team?.name || "Away Team",
-          homeScore: game.linescore?.teams?.home?.goals,
-          awayScore: game.linescore?.teams?.away?.goals,
-          status: getStatusString(game.status),
-          date: game.gameDate,
+          homeTeam: game.strHomeTeam || "Home Team",
+          awayTeam: game.strAwayTeam || "Away Team",
+          homeScore: game.intHomeScore !== null && game.intHomeScore !== "" ? parseInt(game.intHomeScore) : null,
+          awayScore: game.intAwayScore !== null && game.intAwayScore !== "" ? parseInt(game.intAwayScore) : null,
+          status: getStatusString(game.strStatus || "Final"),
+          date: nhlDate ? `${nhlDate}T${nhlTime}` : null,
         };
       default:
         return {
@@ -172,7 +161,7 @@ export default function GameCard({ game, league }) {
             {gameInfo.awayTeam} @ {gameInfo.homeTeam}
           </Card.Title>
           <Badge bg={isFinal ? "success" : "secondary"} style={{ borderRadius: "8px", padding: "0.5rem 0.75rem" }}>
-            {gameInfo.status}
+            {isFinal ? "Final" : gameInfo.status}
           </Badge>
         </div>
         

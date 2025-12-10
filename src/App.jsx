@@ -7,6 +7,9 @@ import Highlights from "./pages/Highlights";
 import AboutMe from "./pages/AboutMe";
 import MyTeams from "./pages/MyTeams";
 import Favorites from "./pages/Favorites";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   // Handle trailing slash redirect in development
@@ -23,11 +26,48 @@ function App() {
       <AppNavbar />
       <Container fluid className="app-container">
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/myteams" element={<MyTeams />} />
-          <Route path="/highlights" element={<Highlights />} />
-          <Route path="/favorites" element={<Favorites />} />
-          <Route path="/about" element={<AboutMe />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Home />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/myteams"
+            element={
+              <ProtectedRoute>
+                <MyTeams />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/highlights"
+            element={
+              <ProtectedRoute>
+                <Highlights />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/favorites"
+            element={
+              <ProtectedRoute>
+                <Favorites />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/about"
+            element={
+              <ProtectedRoute>
+                <AboutMe />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </Container>
     </Router>

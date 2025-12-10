@@ -1,19 +1,58 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
+import { useAuth } from "./AuthContext";
 
 // Create the context
 const SelectedTeamsContext = createContext();
 
 // Provider component
 export function SelectedTeamsProvider({ children }) {
-  // Load from localStorage on mount
+  const auth = useAuth();
+  const { currentUser, getUserPreferences, saveUserPreferences } = auth || {};
+  
+  // Load from user preferences or localStorage (for guests)
   const [selectedTeams, setSelectedTeams] = useState(() => {
+    if (auth && getUserPreferences) {
+      try {
+        const prefs = getUserPreferences();
+        return prefs?.selectedTeams || [];
+      } catch (e) {
+        // Fallback if getUserPreferences fails
+      }
+    }
+    // Fallback for when auth context isn't available yet
     const saved = localStorage.getItem("selectedTeams");
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Save to localStorage whenever selectedTeams changes
+  // Update when user changes
   useEffect(() => {
-    localStorage.setItem("selectedTeams", JSON.stringify(selectedTeams));
+    if (auth && currentUser && getUserPreferences) {
+      try {
+        const prefs = getUserPreferences();
+        setSelectedTeams(prefs?.selectedTeams || []);
+      } catch (e) {
+        // Fallback if getUserPreferences fails
+      }
+    }
+  }, [currentUser?.username, currentUser?.isGuest]);
+
+  // Save to user preferences whenever selectedTeams changes
+  useEffect(() => {
+    if (auth && saveUserPreferences) {
+      try {
+        const prefs = getUserPreferences ? getUserPreferences() : {};
+        saveUserPreferences({
+          ...prefs,
+          selectedTeams
+        });
+      } catch (e) {
+        // Fallback if save fails
+        localStorage.setItem("selectedTeams", JSON.stringify(selectedTeams));
+      }
+    } else {
+      // Fallback for when auth context isn't available
+      localStorage.setItem("selectedTeams", JSON.stringify(selectedTeams));
+    }
   }, [selectedTeams]);
 
   // Function to toggle a team

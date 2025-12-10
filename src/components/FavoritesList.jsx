@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { Card, Row, Col } from "react-bootstrap";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import HighlightCard from "./HighlightCard";
 import LoadingSpinner from "./LoadingSpinner";
 
 export default function FavoritesList() {
+  const { getUserPreferences } = useAuth();
   const [favoriteHighlights, setFavoriteHighlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -19,8 +21,9 @@ export default function FavoritesList() {
   };
 
   const loadFavorites = () => {
-    // Load favorites from localStorage
-    const favorites = JSON.parse(localStorage.getItem("favoriteHighlights") || "[]");
+    // Load favorites from user preferences
+    const prefs = getUserPreferences();
+    const favorites = prefs.favorites || [];
     
     // Filter out any invalid entries and ensure we have proper structure
     const validFavorites = favorites.filter(fav => {

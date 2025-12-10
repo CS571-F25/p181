@@ -49,7 +49,6 @@ export default function StatsWidget({ team, league }) {
     return <ErrorMessage message={error} />;
   }
 
-  // For NFL, show "Previous games", for others show "Upcoming Games"
-  const title = league === "NFL" ? "Previous games" : "Upcoming Games";
-  return <ScheduleCard games={games} league={league} title={title} />;
+  // Show "Previous Games" for all leagues
+  return <ScheduleCard games={games} league={league} title="Previous Games" />;
 }

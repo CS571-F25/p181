@@ -1,39 +1,28 @@
-export const LEAGUES = ["NBA", "NFL", "MLB", "NHL"];
+/**
+ * Script to fetch all team badge URLs from TheSportsDB and update teamLogos.js
+ * 
+ * Usage: node scripts/fetchTeamLogos.js
+ * 
+ * This script will:
+ * 1. Fetch all teams for each league from TheSportsDB
+ * 2. Match them to team abbreviations in sports.js
+ * 3. Generate updated teamLogos.js with all badge URLs
+ */
 
-export const TEAMS = {
-  NBA: [
-    { name: "Atlanta Hawks", abbreviation: "ATL" },
-    { name: "Boston Celtics", abbreviation: "BOS" },
-    { name: "Brooklyn Nets", abbreviation: "BKN" },
-    { name: "Charlotte Hornets", abbreviation: "CHA" },
-    { name: "Chicago Bulls", abbreviation: "CHI" },
-    { name: "Cleveland Cavaliers", abbreviation: "CLE" },
-    { name: "Dallas Mavericks", abbreviation: "DAL" },
-    { name: "Denver Nuggets", abbreviation: "DEN" },
-    { name: "Detroit Pistons", abbreviation: "DET" },
-    { name: "Golden State Warriors", abbreviation: "GSW" },
-    { name: "Houston Rockets", abbreviation: "HOU" },
-    { name: "Indiana Pacers", abbreviation: "IND" },
-    { name: "LA Clippers", abbreviation: "LAC" },
-    { name: "Los Angeles Lakers", abbreviation: "LAL" },
-    { name: "Memphis Grizzlies", abbreviation: "MEM" },
-    { name: "Miami Heat", abbreviation: "MIA" },
-    { name: "Milwaukee Bucks", abbreviation: "MIL" },
-    { name: "Minnesota Timberwolves", abbreviation: "MIN" },
-    { name: "New Orleans Pelicans", abbreviation: "NOP" },
-    { name: "New York Knicks", abbreviation: "NYK" },
-    { name: "Oklahoma City Thunder", abbreviation: "OKC" },
-    { name: "Orlando Magic", abbreviation: "ORL" },
-    { name: "Philadelphia 76ers", abbreviation: "PHI" },
-    { name: "Phoenix Suns", abbreviation: "PHX" },
-    { name: "Portland Trail Blazers", abbreviation: "POR" },
-    { name: "Sacramento Kings", abbreviation: "SAC" },
-    { name: "San Antonio Spurs", abbreviation: "SAS" },
-    { name: "Toronto Raptors", abbreviation: "TOR" },
-    { name: "Utah Jazz", abbreviation: "UTA" },
-    { name: "Washington Wizards", abbreviation: "WAS" },
-  ],
+const fs = require('fs');
+const path = require('path');
 
+const API_KEY = "123"; // TheSportsDB free API key
+const BASE_URL = "https://www.thesportsdb.com/api/v1/json";
+
+const LEAGUE_IDS = {
+  NFL: "4391",
+  MLB: "4424",
+  NHL: "4380",
+};
+
+// Team name mappings (full names from sports.js)
+const TEAM_NAMES = {
   NFL: [
     { name: "Arizona Cardinals", abbreviation: "ARI" },
     { name: "Atlanta Falcons", abbreviation: "ATL" },
@@ -68,7 +57,6 @@ export const TEAMS = {
     { name: "Tennessee Titans", abbreviation: "TEN" },
     { name: "Washington Commanders", abbreviation: "WAS" },
   ],
-
   MLB: [
     { name: "Arizona Diamondbacks", abbreviation: "ARI" },
     { name: "Atlanta Braves", abbreviation: "ATL" },
@@ -99,11 +87,11 @@ export const TEAMS = {
     { name: "Tampa Bay Rays", abbreviation: "TB" },
     { name: "Texas Rangers", abbreviation: "TEX" },
     { name: "Toronto Blue Jays", abbreviation: "TOR" },
-    { name: "Washington Nationals", abbreviation: "WSH" },
+    { name: "Washington Nationals", abbreviation: "WAS" },
   ],
-
   NHL: [
     { name: "Anaheim Ducks", abbreviation: "ANA" },
+    { name: "Arizona Coyotes", abbreviation: "ARI" },
     { name: "Boston Bruins", abbreviation: "BOS" },
     { name: "Buffalo Sabres", abbreviation: "BUF" },
     { name: "Calgary Flames", abbreviation: "CGY" },
@@ -130,10 +118,82 @@ export const TEAMS = {
     { name: "St. Louis Blues", abbreviation: "STL" },
     { name: "Tampa Bay Lightning", abbreviation: "TBL" },
     { name: "Toronto Maple Leafs", abbreviation: "TOR" },
-    { name: "Utah Mammoth", abbreviation: "UTA" },
     { name: "Vancouver Canucks", abbreviation: "VAN" },
     { name: "Vegas Golden Knights", abbreviation: "VGK" },
     { name: "Washington Capitals", abbreviation: "WSH" },
     { name: "Winnipeg Jets", abbreviation: "WPG" },
   ],
 };
+
+async function fetchTeamBadges(league) {
+  const leagueId = LEAGUE_IDS[league];
+  if (!leagueId) return {};
+
+  try {
+    const url = `${BASE_URL}/${API_KEY}/lookup_all_teams.php?id=${leagueId}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.error(`Failed to fetch ${league} teams: ${response.status}`);
+      return {};
+    }
+
+    const data = await response.json();
+    if (!data.teams || !Array.isArray(data.teams)) {
+      console.error(`No teams found for ${league}`);
+      return {};
+    }
+
+    const badges = {};
+    const teamNames = TEAM_NAMES[league];
+
+    // Match teams by name
+    teamNames.forEach(({ name, abbreviation }) => {
+      const team = data.teams.find(t => 
+        t.strTeam === name || 
+        t.strAlternate === name ||
+        t.strTeam.toLowerCase().includes(name.toLowerCase().split(' ')[0]) // Partial match
+      );
+
+      if (team && team.strTeamBadge) {
+        badges[abbreviation] = team.strTeamBadge;
+        console.log(`✓ ${league} ${abbreviation}: ${team.strTeamBadge}`);
+      } else {
+        console.warn(`✗ ${league} ${abbreviation} (${name}): Not found`);
+        badges[abbreviation] = null;
+      }
+    });
+
+    return badges;
+  } catch (error) {
+    console.error(`Error fetching ${league} teams:`, error);
+    return {};
+  }
+}
+
+async function main() {
+  console.log("Fetching team badges from TheSportsDB...\n");
+
+  const allBadges = {
+    NFL: {},
+    MLB: {},
+    NHL: {},
+  };
+
+  for (const league of Object.keys(LEAGUE_IDS)) {
+    console.log(`\nFetching ${league} teams...`);
+    allBadges[league] = await fetchTeamBadges(league);
+    // Add delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log("\n\nDone! Update teamLogos.js with the fetched badge URLs.");
+  console.log("\nFetched badges:", JSON.stringify(allBadges, null, 2));
+}
+
+if (require.main === module) {
+  main().catch(console.error);
+}
+
+module.exports = { fetchTeamBadges };
+

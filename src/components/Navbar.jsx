@@ -1,12 +1,15 @@
-import { Navbar, Nav, Container } from "react-bootstrap";
-import { Link } from "react-router-dom";
+import { Navbar, Nav, Container, Button } from "react-bootstrap";
+import { Link, useNavigate } from "react-router-dom";
 import { useSelectedTeams } from "../contexts/SelectedTeamsContext";
+import { useAuth } from "../contexts/AuthContext";
 import { loadTeamLogosFromGitHub } from "../services/teamLogosService";
 import { useState, useEffect } from "react";
 import { TEAMS } from "../sports";
 
 function AppNavbar() {
   const { selectedTeams } = useSelectedTeams();
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
   const [teamLogos, setTeamLogos] = useState({});
 
   useEffect(() => {
@@ -29,9 +32,13 @@ function AppNavbar() {
         <Navbar.Collapse id="main-nav">
           <Nav className="me-auto">
             <Nav.Link as={Link} to="/">Home</Nav.Link>
-            <Nav.Link as={Link} to="/myteams">My Teams</Nav.Link>
+            {!currentUser?.isGuest && (
+              <>
+                <Nav.Link as={Link} to="/myteams">My Teams</Nav.Link>
+                <Nav.Link as={Link} to="/favorites">Favorites</Nav.Link>
+              </>
+            )}
             <Nav.Link as={Link} to="/highlights">Highlights</Nav.Link>
-            <Nav.Link as={Link} to="/favorites">Favorites</Nav.Link>
             <Nav.Link as={Link} to="/about">About</Nav.Link>
           </Nav>
           <Nav className="align-items-center">
@@ -87,6 +94,33 @@ function AppNavbar() {
                   </span>
                 )}
               </div>
+            )}
+            {/* Auth Buttons */}
+            {currentUser ? (
+              <div className="d-flex align-items-center">
+                <span className="text-light me-3" style={{ fontSize: "0.9rem" }}>
+                  {currentUser.isGuest ? "Guest" : currentUser.username}
+                </span>
+                <Button
+                  variant="outline-light"
+                  onClick={() => {
+                    logout();
+                    navigate("/");
+                  }}
+                  style={{ borderRadius: "12px", padding: "0.5rem 1rem" }}
+                >
+                  Logout
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline-light"
+                as={Link}
+                to="/login"
+                style={{ borderRadius: "12px", padding: "0.5rem 1rem" }}
+              >
+                Login
+              </Button>
             )}
           </Nav>
         </Navbar.Collapse>

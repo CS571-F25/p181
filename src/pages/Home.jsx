@@ -268,18 +268,15 @@ export default function Home() {
             let isFavoriteGame = false;
             
             if (league === "NBA") {
-              const homeAbbr = game.home_team?.abbreviation;
-              const visitorAbbr = game.visitor_team?.abbreviation;
-              const homeName = game.home_team?.full_name || game.home_team?.name;
-              const visitorName = game.visitor_team?.full_name || game.visitor_team?.name;
+              // TheSportsDB structure: strHomeTeam, strAwayTeam
+              const homeName = game.strHomeTeam;
+              const awayName = game.strAwayTeam;
               
               isFavoriteGame = favoriteTeamInfo.some(team => 
-                team.abbreviation === homeAbbr || 
-                team.abbreviation === visitorAbbr ||
                 team.name === homeName ||
-                team.name === visitorName ||
                 team.fullName === homeName ||
-                team.fullName === visitorName
+                team.name === awayName ||
+                team.fullName === awayName
               );
             } else if (league === "NFL") {
               const homeName = game.strHomeTeam;
@@ -292,8 +289,9 @@ export default function Home() {
                 team.fullName === awayName
               );
             } else if (league === "MLB") {
-              const homeName = game.teams?.home?.name;
-              const awayName = game.teams?.away?.name;
+              // TheSportsDB structure: strHomeTeam, strAwayTeam
+              const homeName = game.strHomeTeam;
+              const awayName = game.strAwayTeam;
               
               isFavoriteGame = favoriteTeamInfo.some(team => 
                 team.name === homeName ||
@@ -302,8 +300,9 @@ export default function Home() {
                 team.fullName === awayName
               );
             } else if (league === "NHL") {
-              const homeName = game.teams?.home?.team?.name;
-              const awayName = game.teams?.away?.team?.name;
+              // TheSportsDB structure: strHomeTeam, strAwayTeam
+              const homeName = game.strHomeTeam;
+              const awayName = game.strAwayTeam;
               
               isFavoriteGame = favoriteTeamInfo.some(team => 
                 team.name === homeName ||

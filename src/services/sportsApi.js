@@ -113,13 +113,13 @@ function isValidNBAGame(game) {
  * Using Ball Don't Lie API - https://docs.balldontlie.io/
  * Implements caching to reduce API calls and avoid rate limits
  */
+/**
+ * Fetch NBA games/scores
+ * Using TheSportsDB - https://www.thesportsdb.com/api/v1/json/123
+ * Fetches last 3 days of games using eventsday.php (reduced to prevent rate limiting)
+ */
 export async function fetchNBAGames(teamId = null) {
   try {
-    // Check if API key is set
-    if (API_KEYS.BALL_DONT_LIE === "YOUR_BALL_DONT_LIE_KEY_HERE") {
-      return getMockNBAGames();
-    }
-
     // Check cache first
     const cacheKey = getCacheKey('games', 'NBA', teamId);
     const cachedData = getCachedData(cacheKey);
@@ -127,65 +127,70 @@ export async function fetchNBAGames(teamId = null) {
       return cachedData;
     }
 
-    // Build URL with query parameters
-    const url = new URL(`${API_BASE_URLS.BALL_DONT_LIE}/games`);
+    // TheSportsDB API for NBA games
+    // Base URL: https://www.thesportsdb.com/api/v1/json/123
+    // Endpoint: eventsday.php?l=nba&d={YYYY-MM-DD}
+    // Fetch last 7 days of games to get more results
+    const allGames = await fetchGamesFromTheSportsDB('nba', 7);
     
-    // Add query parameters
-    url.searchParams.append('per_page', '100'); // Max is 100
-    
-    // Filter to only show games from last 2 years
-    const currentYear = new Date().getFullYear();
-    const twoYearsAgo = currentYear - 2;
-    url.searchParams.append('seasons[]', String(twoYearsAgo));
-    url.searchParams.append('seasons[]', String(currentYear));
-    
-    // Filter by team if provided
-    if (teamId) {
-      url.searchParams.append('team_ids[]', String(teamId));
+    console.log(`[NBA] Fetched ${allGames.length} total games from API`);
+    if (allGames.length > 0) {
+      console.log(`[NBA] Sample game:`, {
+        id: allGames[0].idEvent,
+        home: allGames[0].strHomeTeam,
+        away: allGames[0].strAwayTeam,
+        homeScore: allGames[0].intHomeScore,
+        awayScore: allGames[0].intAwayScore,
+        status: allGames[0].strStatus
+      });
     }
     
-    // Only regular season games (set postseason=false to exclude playoffs)
-    url.searchParams.append('postseason', 'false');
+    // If we got some games, process them; otherwise fall back to mock
+    if (allGames.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockNBAGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
+    }
     
-    // Make request with Authorization header
-    const response = await fetch(url.toString(), {
-      headers: {
-        "Authorization": API_KEYS.BALL_DONT_LIE,
-      },
+    // Filter to only completed games (have scores)
+    // Scores can be strings or numbers, so check both
+    const completedGames = allGames.filter(game => {
+      const homeScore = game.intHomeScore;
+      const awayScore = game.intAwayScore;
+      // Check if scores exist and are not empty/null
+      const hasHomeScore = homeScore !== null && homeScore !== undefined && homeScore !== "";
+      const hasAwayScore = awayScore !== null && awayScore !== undefined && awayScore !== "";
+      return hasHomeScore && hasAwayScore;
     });
     
-    if (!response.ok) {
-      // Handle rate limiting - use cache if available, otherwise mock data
-      if (response.status === 429) {
-        console.warn("Rate limited - using cached data if available");
-        const staleCache = getCachedData(cacheKey);
-        if (staleCache) {
-          return staleCache; // Return stale cache if rate limited
-        }
-        return getMockNBAGames();
-      }
-      // 401/403/404 are expected when API key is invalid - silently use mock data
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        return getMockNBAGames();
-      }
-      throw new Error(`Failed to fetch NBA games: ${response.status}`);
-    }
+    console.log(`[NBA] After filtering, ${completedGames.length} games have scores (out of ${allGames.length} total)`);
     
-    const data = await response.json();
-    const allGames = data.data || [];
-    
-    // Filter to only include valid NBA games (exclude G-League)
-    const nbaGames = allGames.filter(isValidNBAGame);
-    
-    // Sort by date (most recent first) - using datetime field for more precise sorting
-    const sortedGames = nbaGames.sort((a, b) => {
-      const dateA = new Date(a.datetime || a.date || 0);
-      const dateB = new Date(b.datetime || b.date || 0);
+    // Sort by date (most recent first) using dateEventLocal and strTimeLocal
+    const sortedGames = completedGames.sort((a, b) => {
+      const dateA = a.dateEventLocal ? new Date(`${a.dateEventLocal}T${a.strTimeLocal || '00:00:00'}`).getTime() : 0;
+      const dateB = b.dateEventLocal ? new Date(`${b.dateEventLocal}T${b.strTimeLocal || '00:00:00'}`).getTime() : 0;
       return dateB - dateA; // Most recent first
     });
     
-    // Return up to 10 NBA games
-    const result = sortedGames.slice(0, 10);
+    // Return up to 20 games
+    const result = sortedGames.slice(0, 20);
+    
+    console.log(`[NBA] Returning ${result.length} games to display`);
+    
+    // If no games found, return mock data
+    if (result.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockNBAGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
+    }
     
     // Cache the result
     setCachedData(cacheKey, result);
@@ -196,27 +201,75 @@ export async function fetchNBAGames(teamId = null) {
     if (error.message?.includes("Failed to fetch") || 
         error.message?.includes("ERR_NAME_NOT_RESOLVED") ||
         error.name === "TypeError") {
-      // Try to use cache on network errors
       const cacheKey = getCacheKey('games', 'NBA', teamId);
       const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
+      if (cachedData && cachedData.length > 0) {
         return cachedData;
       }
       return getMockNBAGames();
     }
-    // Only log unexpected errors (not 401/403)
-    if (!error.message?.includes("401") && !error.message?.includes("403")) {
-      console.error("Error fetching NBA games:", error);
-    }
-    // Return mock data as fallback
+    console.error("Error fetching NBA games:", error);
     return getMockNBAGames();
   }
 }
 
 /**
+ * Helper function to fetch games from TheSportsDB for any league
+ * @param {string} league - League identifier (nfl, mlb, nhl)
+ * @param {number} days - Number of days to fetch (default: 3)
+ */
+async function fetchGamesFromTheSportsDB(league, days = 7) {
+  const allGames = [];
+  const today = new Date();
+  
+  // Fetch games for the specified number of days
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    try {
+      const url = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/eventsday.php?l=${league}&d=${dateStr}`;
+      const response = await fetch(url);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.events && Array.isArray(data.events)) {
+          console.log(`[TheSportsDB ${league}] Fetched ${data.events.length} events for ${dateStr}`);
+          allGames.push(...data.events);
+        } else {
+          console.log(`[TheSportsDB ${league}] No events array in response for ${dateStr}:`, data);
+        }
+      } else if (response.status === 429) {
+        // Rate limited - stop trying more dates and use what we have
+        console.warn(`Rate limited while fetching ${league.toUpperCase()} games - using available data`);
+        break;
+      }
+      
+      // Add a delay between requests to avoid rate limiting (except for last iteration)
+      // Increased delay to 500ms to reduce rate limiting
+      if (i < days - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+      }
+    } catch (err) {
+      // Handle CORS and network errors gracefully
+      if (err.message?.includes("CORS") || err.message?.includes("Failed to fetch")) {
+        // CORS error - stop trying and use what we have
+        console.warn(`CORS error while fetching ${league.toUpperCase()} games - using available data or mock`);
+        break;
+      }
+      // Continue to next date for other errors
+      console.warn(`Failed to fetch ${league.toUpperCase()} games for ${dateStr}:`, err);
+    }
+  }
+  
+  return allGames;
+}
+
+/**
  * Fetch NFL games/scores
  * Using TheSportsDB - https://www.thesportsdb.com/api/v1/json/123
- * Fetches last 12 days of games using eventsday.php
+ * Fetches last 3 days of games using eventsday.php (reduced to prevent rate limiting)
  */
 export async function fetchNFLGames(teamId = null) {
   try {
@@ -230,65 +283,44 @@ export async function fetchNFLGames(teamId = null) {
     // TheSportsDB API for NFL games
     // Base URL: https://www.thesportsdb.com/api/v1/json/123
     // Endpoint: eventsday.php?l=nfl&d={YYYY-MM-DD}
-    // Fetch last 7 days of games (reduced from 12 to avoid rate limiting)
-    const allGames = [];
-    const today = new Date();
+    // Fetch last 7 days of games to get more results
+    const allGames = await fetchGamesFromTheSportsDB('nfl', 7);
     
-    // Try to fetch games, but limit to 7 days and add delays to avoid rate limiting
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
-      
-      try {
-        const url = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/eventsday.php?l=nfl&d=${dateStr}`;
-        const response = await fetch(url);
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.events && Array.isArray(data.events)) {
-            allGames.push(...data.events);
-          }
-        } else if (response.status === 429) {
-          // Rate limited - stop trying more dates and use what we have
-          console.warn("Rate limited while fetching NFL games - using available data");
-          break;
-        }
-        
-        // Add a small delay between requests to avoid rate limiting (except for last iteration)
-        if (i < 6) {
-          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
-        }
-      } catch (err) {
-        // Handle CORS and network errors gracefully
-        if (err.message?.includes("CORS") || err.message?.includes("Failed to fetch")) {
-          // CORS error - stop trying and use what we have or fall back to mock
-          console.warn("CORS error while fetching NFL games - using available data or mock");
-          break;
-        }
-        // Continue to next date for other errors
-        console.warn(`Failed to fetch NFL games for ${dateStr}:`, err);
-      }
+    console.log(`[NFL] Fetched ${allGames.length} total games from API`);
+    if (allGames.length > 0) {
+      console.log(`[NFL] Sample game:`, {
+        id: allGames[0].idEvent,
+        home: allGames[0].strHomeTeam,
+        away: allGames[0].strAwayTeam,
+        homeScore: allGames[0].intHomeScore,
+        awayScore: allGames[0].intAwayScore,
+        status: allGames[0].strStatus
+      });
     }
     
     // If we got some games, process them; otherwise fall back to mock
     if (allGames.length === 0) {
-      // No games fetched - likely CORS or rate limiting issues
-      // Try to use cache, otherwise return mock data
       const staleCache = getCachedData(cacheKey);
-      if (staleCache) {
+      if (staleCache && staleCache.length > 0) {
         return staleCache;
       }
-      return getMockNFLGames();
+      const mockGames = getMockNFLGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
     }
     
     // Filter to only completed games (have scores)
-    const completedGames = allGames.filter(game => 
-      game.intHomeScore !== null && 
-      game.intAwayScore !== null &&
-      game.intHomeScore !== "" &&
-      game.intAwayScore !== ""
-    );
+    // Scores can be strings or numbers, so check both
+    const completedGames = allGames.filter(game => {
+      const homeScore = game.intHomeScore;
+      const awayScore = game.intAwayScore;
+      // Check if scores exist and are not empty/null
+      const hasHomeScore = homeScore !== null && homeScore !== undefined && homeScore !== "";
+      const hasAwayScore = awayScore !== null && awayScore !== undefined && awayScore !== "";
+      return hasHomeScore && hasAwayScore;
+    });
+    
+    console.log(`[NFL] After filtering, ${completedGames.length} games have scores (out of ${allGames.length} total)`);
     
     // Sort by date (most recent first) using dateEventLocal and strTimeLocal
     const sortedGames = completedGames.sort((a, b) => {
@@ -297,8 +329,21 @@ export async function fetchNFLGames(teamId = null) {
       return dateB - dateA; // Most recent first
     });
     
-    // Return last 20 games
+    // Return up to 20 games
     const result = sortedGames.slice(0, 20);
+    
+    console.log(`[NFL] Returning ${result.length} games to display`);
+    
+    // If no games found, return mock data
+    if (result.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockNFLGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
+    }
     
     // Cache the result
     setCachedData(cacheKey, result);
@@ -312,7 +357,7 @@ export async function fetchNFLGames(teamId = null) {
       // Try to use cache on network errors
       const cacheKey = getCacheKey('games', 'NFL', teamId);
       const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
+      if (cachedData && cachedData.length > 0) {
         return cachedData;
       }
       return getMockNFLGames();
@@ -324,113 +369,92 @@ export async function fetchNFLGames(teamId = null) {
 
 /**
  * Fetch MLB games/scores
- * Using API-Sports - same base URL as NFL
- * Note: Check documentation for MLB-specific requirements
+ * Using TheSportsDB - https://www.thesportsdb.com/api/v1/json/123
+ * Fetches last 3 days of games using eventsday.php
  */
 export async function fetchMLBGames(teamId = null) {
   try {
-    // Using API-Sports (requires key)
-    if (API_KEYS.API_SPORTS === "YOUR_API_SPORTS_KEY_HERE") {
-      return getMockMLBGames();
-    }
-
     // Check cache first
     const cacheKey = getCacheKey('games', 'MLB', teamId);
     const cachedData = getCachedData(cacheKey);
     if (cachedData) {
       return cachedData;
     }
+
+    // TheSportsDB API for MLB games
+    // Base URL: https://www.thesportsdb.com/api/v1/json/123
+    // Endpoint: eventsday.php?l=mlb&d={YYYY-MM-DD}
+    // Fetch last 7 days of games to get more results
+    const allGames = await fetchGamesFromTheSportsDB('mlb', 7);
     
-    // API-Sports MLB API - using same base URL as NFL
-    // Note: May need different endpoint or league ID for MLB
-    // For now, using same structure as NFL
-    const currentSeason = new Date().getFullYear();
-    
-    const url = new URL(`${API_BASE_URLS.API_SPORTS}/games`);
-    url.searchParams.append('league', '3'); // League ID 3 = MLB (if using same endpoint)
-    url.searchParams.append('season', String(currentSeason));
-    
-    if (teamId) {
-      url.searchParams.append('team', String(teamId));
+    // If we got some games, process them; otherwise fall back to mock
+    if (allGames.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockMLBGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
     }
     
-    // Try different authentication headers
-    let response = await fetch(url.toString(), {
-      headers: {
-        "x-apisports-key": API_KEYS.API_SPORTS,
-      },
+    // Filter to only completed games (have scores)
+    // Scores can be strings or numbers, so check both
+    const completedGames = allGames.filter(game => {
+      const homeScore = game.intHomeScore;
+      const awayScore = game.intAwayScore;
+      // Check if scores exist and are not empty/null
+      const hasHomeScore = homeScore !== null && homeScore !== undefined && homeScore !== "";
+      const hasAwayScore = awayScore !== null && awayScore !== undefined && awayScore !== "";
+      return hasHomeScore && hasAwayScore;
     });
     
-    // If that fails, try with RapidAPI headers
-    if (!response.ok && (response.status === 401 || response.status === 403 || response.status === 404)) {
-      response = await fetch(url.toString(), {
-        headers: {
-          "x-rapidapi-key": API_KEYS.API_SPORTS,
-          "x-rapidapi-host": "v1.american-football.api-sports.io",
-        },
-      });
-    }
-    
-    if (!response.ok) {
-      // Handle rate limiting
-      if (response.status === 429) {
-        console.warn("Rate limited - using cached data if available");
-        const staleCache = getCachedData(cacheKey);
-        if (staleCache) {
-          return staleCache;
-        }
-        return getMockMLBGames();
-      }
-      // 401/403/404 are expected when API key is invalid or endpoint wrong - silently use mock data
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        return getMockMLBGames();
-      }
-      throw new Error(`Failed to fetch MLB games: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    // API-Sports returns an array directly, not wrapped in response
-    const games = Array.isArray(data) ? data : (data.response || data.data || []);
-    
-    // Sort by date (most recent first)
-    const sortedGames = games.sort((a, b) => {
-      const dateA = a.game?.date?.timestamp || (a.game?.date?.date ? new Date(a.game.date.date).getTime() : 0);
-      const dateB = b.game?.date?.timestamp || (b.game?.date?.date ? new Date(b.game.date.date).getTime() : 0);
+    // Sort by date (most recent first) using dateEventLocal and strTimeLocal
+    const sortedGames = completedGames.sort((a, b) => {
+      const dateA = a.dateEventLocal ? new Date(`${a.dateEventLocal}T${a.strTimeLocal || '00:00:00'}`).getTime() : 0;
+      const dateB = b.dateEventLocal ? new Date(`${b.dateEventLocal}T${b.strTimeLocal || '00:00:00'}`).getTime() : 0;
       return dateB - dateA; // Most recent first
     });
     
-    // Return up to 10 games
-    const result = sortedGames.slice(0, 10);
+    // Return up to 20 games
+    const result = sortedGames.slice(0, 20);
+    
+    // If no games found, return mock data
+    if (result.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockMLBGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
+    }
     
     // Cache the result
     setCachedData(cacheKey, result);
     
     return result;
   } catch (error) {
-    // Handle network errors and API errors gracefully
+    // Handle network errors gracefully
     if (error.message?.includes("Failed to fetch") || 
         error.message?.includes("ERR_NAME_NOT_RESOLVED") ||
         error.name === "TypeError") {
-      // Try to use cache on network errors
       const cacheKey = getCacheKey('games', 'MLB', teamId);
       const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
+      if (cachedData && cachedData.length > 0) {
         return cachedData;
       }
       return getMockMLBGames();
     }
-    // Only log unexpected errors (not 401/403/404)
-    if (!error.message?.includes("401") && 
-        !error.message?.includes("403") && 
-        !error.message?.includes("404")) {
-      console.error("Error fetching MLB games:", error);
-    }
+    console.error("Error fetching MLB games:", error);
     return getMockMLBGames();
   }
 }
 
 /**
  * Fetch NHL games/scores
+ * Using TheSportsDB - https://www.thesportsdb.com/api/v1/json/123
+ * Fetches last 7 days of games using eventsday.php
  */
 export async function fetchNHLGames(teamId = null) {
   try {
@@ -441,43 +465,72 @@ export async function fetchNHLGames(teamId = null) {
       return cachedData;
     }
 
-    // Using official NHL Stats API (free, no key needed)
-    const url = teamId
-      ? `${API_BASE_URLS.NHL_STATS}/schedule?teamId=${teamId}&expand=schedule.linescore`
-      : `${API_BASE_URLS.NHL_STATS}/schedule?expand=schedule.linescore`;
+    // TheSportsDB API for NHL games
+    // Base URL: https://www.thesportsdb.com/api/v1/json/123
+    // Endpoint: eventsday.php?l=nhl&d={YYYY-MM-DD}
+    // Fetch last 7 days of games to get more results
+    const allGames = await fetchGamesFromTheSportsDB('nhl', 7);
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      // 401/403/404 are expected in some cases - silently use mock data
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        return getMockNHLGames();
+    // If we got some games, process them; otherwise fall back to mock
+    if (allGames.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
       }
-      throw new Error(`Failed to fetch NHL games: ${response.status}`);
+      const mockGames = getMockNHLGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
     }
-    const data = await response.json();
-    const games = data.dates?.[0]?.games || [];
+    
+    // Filter to only completed games (have scores)
+    // Scores can be strings or numbers, so check both
+    const completedGames = allGames.filter(game => {
+      const homeScore = game.intHomeScore;
+      const awayScore = game.intAwayScore;
+      // Check if scores exist and are not empty/null
+      const hasHomeScore = homeScore !== null && homeScore !== undefined && homeScore !== "";
+      const hasAwayScore = awayScore !== null && awayScore !== undefined && awayScore !== "";
+      return hasHomeScore && hasAwayScore;
+    });
+    
+    // Sort by date (most recent first) using dateEventLocal and strTimeLocal
+    const sortedGames = completedGames.sort((a, b) => {
+      const dateA = a.dateEventLocal ? new Date(`${a.dateEventLocal}T${a.strTimeLocal || '00:00:00'}`).getTime() : 0;
+      const dateB = b.dateEventLocal ? new Date(`${b.dateEventLocal}T${b.strTimeLocal || '00:00:00'}`).getTime() : 0;
+      return dateB - dateA; // Most recent first
+    });
+    
+    // Return up to 20 games
+    const result = sortedGames.slice(0, 20);
+    
+    // If no games found, return mock data
+    if (result.length === 0) {
+      const staleCache = getCachedData(cacheKey);
+      if (staleCache && staleCache.length > 0) {
+        return staleCache;
+      }
+      const mockGames = getMockNHLGames();
+      setCachedData(cacheKey, mockGames);
+      return mockGames;
+    }
     
     // Cache the result
-    setCachedData(cacheKey, games);
+    setCachedData(cacheKey, result);
     
-    return games;
+    return result;
   } catch (error) {
     // Handle network errors gracefully
     if (error.message?.includes("Failed to fetch") || 
         error.message?.includes("ERR_NAME_NOT_RESOLVED") ||
         error.name === "TypeError") {
-      // Try to use cache on network errors
       const cacheKey = getCacheKey('games', 'NHL', teamId);
       const cachedData = getCachedData(cacheKey);
-      if (cachedData) {
+      if (cachedData && cachedData.length > 0) {
         return cachedData;
       }
       return getMockNHLGames();
     }
-    // Only log unexpected errors (not 401/403/404)
-    if (!error.message?.includes("401") && !error.message?.includes("403") && !error.message?.includes("404")) {
-      console.error("Error fetching NHL games:", error);
-    }
+    console.error("Error fetching NHL games:", error);
     return getMockNHLGames();
   }
 }
@@ -730,23 +783,39 @@ function getMockNBAGames() {
 
 function getMockNFLGames() {
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const games = [];
   
-  return [
-    {
-      idEvent: "mock-1",
-      strEvent: "Kansas City Chiefs vs Buffalo Bills",
-      strHomeTeam: "Kansas City Chiefs",
-      strAwayTeam: "Buffalo Bills",
-      intHomeScore: "24",
-      intAwayScore: "20",
+  // Generate 5 mock games from the past week
+  for (let i = 1; i <= 5; i++) {
+    const gameDate = new Date(today);
+    gameDate.setDate(gameDate.getDate() - i);
+    const dateStr = gameDate.toISOString().split('T')[0];
+    
+    const teams = [
+      { home: "Kansas City Chiefs", away: "Buffalo Bills", homeScore: 24, awayScore: 20 },
+      { home: "Dallas Cowboys", away: "Philadelphia Eagles", homeScore: 31, awayScore: 28 },
+      { home: "San Francisco 49ers", away: "Seattle Seahawks", homeScore: 27, awayScore: 14 },
+      { home: "Miami Dolphins", away: "New England Patriots", homeScore: 21, awayScore: 17 },
+      { home: "Green Bay Packers", away: "Chicago Bears", homeScore: 35, awayScore: 24 },
+    ];
+    
+    const team = teams[(i - 1) % teams.length];
+    
+    games.push({
+      idEvent: `mock-nfl-${i}`,
+      strEvent: `${team.away} vs ${team.home}`,
+      strHomeTeam: team.home,
+      strAwayTeam: team.away,
+      intHomeScore: String(team.homeScore),
+      intAwayScore: String(team.awayScore),
       strStatus: "Final",
-      dateEvent: yesterday.toISOString().split('T')[0],
-      dateEventLocal: yesterday.toISOString().split('T')[0],
+      dateEvent: dateStr,
+      dateEventLocal: dateStr,
       strTimeLocal: "20:00:00",
-    },
-  ];
+    });
+  }
+  
+  return games;
 }
 
 function getMockMLBGames() {
