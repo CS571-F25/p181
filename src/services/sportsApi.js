@@ -15,9 +15,66 @@ const API_BASE_URLS = {
 
 // Cache configuration
 const CACHE_TTL = {
-  GAMES: 10 * 60 * 1000, // 10 minutes for games (scores change frequently)
+  GAMES: 30 * 60 * 1000, // 30 minutes for games (increased to reduce API calls when switching leagues)
   HIGHLIGHTS: 30 * 60 * 1000, // 30 minutes for highlights (less frequently updated)
 };
+
+// Global rate limit tracker - tracks when we last hit a rate limit (per league)
+const lastRateLimitTime = {}; // Track per league to avoid blocking all leagues
+const RATE_LIMIT_COOLDOWN = 15 * 1000; // 15 seconds cooldown after rate limit (reduced)
+
+/**
+ * Fetch with CORS proxy fallback
+ * Since TheSportsDB doesn't allow direct browser requests, we use a CORS proxy
+ * @param {string} url - The URL to fetch
+ * @returns {Promise<Response>} The fetch response
+ */
+async function fetchWithCorsProxy(url) {
+  // Try direct fetch first (in case CORS isn't an issue)
+  try {
+    const response = await fetch(url);
+    // If we get a response (even if it's an error status), CORS worked
+    return response;
+  } catch (err) {
+      // If direct fetch fails (likely CORS), use a CORS proxy
+      if (err.message?.includes("CORS") || err.name === "TypeError" || err.message?.includes("Failed to fetch")) {
+        // Silently use CORS proxy - no need to log this expected behavior
+        // Use a public CORS proxy service
+      // Note: For production, you should use your own backend proxy
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+      
+      try {
+        const proxyResponse = await fetch(proxyUrl);
+        if (!proxyResponse.ok) {
+          throw new Error(`Proxy returned ${proxyResponse.status}`);
+        }
+        
+        // The proxy returns JSON with the content in a 'contents' field
+        const proxyData = await proxyResponse.json();
+        
+        // Parse the actual API response from the proxy
+        let parsedData;
+        try {
+          parsedData = JSON.parse(proxyData.contents);
+        } catch (parseErr) {
+          // If parsing fails, the contents might already be an object
+          parsedData = proxyData.contents;
+        }
+        
+        // Create a Response-like object that works with our code
+        return {
+          ok: true,
+          status: 200,
+          json: async () => parsedData
+        };
+      } catch (proxyErr) {
+        // Silently fail - will fall back to cached/mock data
+        throw err; // Re-throw original error
+      }
+    }
+    throw err; // Re-throw if it's not a CORS error
+  }
+}
 
 /**
  * Cache helper functions
@@ -130,8 +187,8 @@ export async function fetchNBAGames(teamId = null) {
     // TheSportsDB API for NBA games
     // Base URL: https://www.thesportsdb.com/api/v1/json/123
     // Endpoint: eventsday.php?l=nba&d={YYYY-MM-DD}
-    // Fetch last 7 days of games to get more results
-    const allGames = await fetchGamesFromTheSportsDB('nba', 7);
+    // Keep fetching days until we have 20 completed games (or hit 30 day limit)
+    const allGames = await fetchGamesFromTheSportsDB('nba', 7, 20);
     
     console.log(`[NBA] Fetched ${allGames.length} total games from API`);
     if (allGames.length > 0) {
@@ -218,49 +275,200 @@ export async function fetchNBAGames(teamId = null) {
  * @param {string} league - League identifier (nfl, mlb, nhl)
  * @param {number} days - Number of days to fetch (default: 3)
  */
-async function fetchGamesFromTheSportsDB(league, days = 7) {
+/**
+ * Fetch games from TheSportsDB for a specific league
+ * @param {string} league - League identifier (nfl, mlb, nhl, nba)
+ * @param {number} days - Number of days to fetch (default: 7)
+ * @param {number} targetCompletedGames - Target number of completed games to fetch (optional)
+ * @returns {Promise<Array>} Array of games
+ */
+async function fetchGamesFromTheSportsDB(league, days = 7, targetCompletedGames = null) {
   const allGames = [];
   const today = new Date();
+  let corsErrorOccurred = false;
+  let wasRateLimited = false; // Track if we've been rate limited in this fetch
+  let consecutiveEmptyDays = 0; // Track consecutive days with no games
+  const maxDays = targetCompletedGames ? 30 : days; // Cap at 30 days if targeting specific count
+  const MAX_EMPTY_DAYS = 5; // Stop if 5 consecutive days have no games
   
-  // Fetch games for the specified number of days
-  for (let i = 0; i < days; i++) {
+  // Check if we've been rate limited recently for THIS league - if so, wait before starting
+  const leagueLastRateLimit = lastRateLimitTime[league] || 0;
+  const timeSinceLastRateLimit = Date.now() - leagueLastRateLimit;
+  if (timeSinceLastRateLimit < RATE_LIMIT_COOLDOWN) {
+    const waitTime = RATE_LIMIT_COOLDOWN - timeSinceLastRateLimit;
+    // Silently wait - rate limit cooldown is expected
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  // Fetch games for the specified number of days, or until we have enough completed games
+  for (let i = 0; i < maxDays; i++) {
+    // If CORS error occurred, stop trying more dates
+    if (corsErrorOccurred) {
+      // Silently stop - CORS errors are handled gracefully
+      break;
+    }
+    
     const date = new Date(today);
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
     
     try {
       const url = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/eventsday.php?l=${league}&d=${dateStr}`;
-      const response = await fetch(url);
+      let response;
+      
+      try {
+        response = await fetchWithCorsProxy(url);
+      } catch (fetchErr) {
+        // Check if this is a 429 error (rate limit) - sometimes it shows up as a network error
+        if (fetchErr.message?.includes("429") || fetchErr.message?.includes("Too Many Requests")) {
+          wasRateLimited = true;
+          lastRateLimitTime[league] = Date.now(); // Update league-specific rate limit tracker
+          // Silently wait - rate limiting is expected and handled
+          await new Promise(resolve => setTimeout(resolve, 10000));
+          
+          // Check if we have enough games before continuing (be flexible - accept if close)
+          if (targetCompletedGames) {
+            const completedCount = allGames.filter(game => {
+              const homeScore = game.intHomeScore;
+              const awayScore = game.intAwayScore;
+              return homeScore !== null && homeScore !== undefined && homeScore !== "" &&
+                     awayScore !== null && awayScore !== undefined && awayScore !== "";
+            }).length;
+            
+            // Accept if we're close to target (within 1 game) - be more lenient
+            if (completedCount >= targetCompletedGames - 1) {
+              // We have enough games - return immediately
+              return allGames; // Return early to stop all processing
+            }
+          }
+          continue;
+        }
+        // If it's a CORS error, check if we have enough games before stopping
+        if (fetchErr.message?.includes("CORS") || fetchErr.name === "TypeError") {
+          // Check if we have enough games (be flexible - accept 19 if target is 20)
+          if (targetCompletedGames) {
+            const completedCount = allGames.filter(game => {
+              const homeScore = game.intHomeScore;
+              const awayScore = game.intAwayScore;
+              return homeScore !== null && homeScore !== undefined && homeScore !== "" &&
+                     awayScore !== null && awayScore !== undefined && awayScore !== "";
+            }).length;
+            
+            // Accept if we're close to target (within 1 game)
+            if (completedCount >= targetCompletedGames - 1) {
+              // We have enough games - return immediately
+              return allGames; // Return early to stop all processing
+            }
+          }
+          corsErrorOccurred = true;
+          // Silently stop - CORS errors are handled gracefully
+          break;
+        }
+        throw fetchErr; // Re-throw if it's not a known error
+      }
       
       if (response.ok) {
         const data = await response.json();
-        if (data.events && Array.isArray(data.events)) {
+        if (data.events && Array.isArray(data.events) && data.events.length > 0) {
           console.log(`[TheSportsDB ${league}] Fetched ${data.events.length} events for ${dateStr}`);
           allGames.push(...data.events);
+          consecutiveEmptyDays = 0; // Reset counter when we find games
+          
+          // If we're targeting a specific number of completed games, check if we have enough
+          if (targetCompletedGames) {
+            const completedCount = allGames.filter(game => {
+              const homeScore = game.intHomeScore;
+              const awayScore = game.intAwayScore;
+              return homeScore !== null && homeScore !== undefined && homeScore !== "" &&
+                     awayScore !== null && awayScore !== undefined && awayScore !== "";
+            }).length;
+            
+            // Accept if we've reached target OR are very close (within 1 game)
+            // Be more lenient - if we're at 80% of target or more, accept it
+            const minAcceptable = Math.max(targetCompletedGames - 1, Math.floor(targetCompletedGames * 0.8));
+            if (completedCount >= targetCompletedGames) {
+              // Target reached - stop immediately
+              return allGames; // Return early to stop all processing
+            } else if (completedCount >= minAcceptable && wasRateLimited) {
+              // If we've been rate limited and are close (at least 80% of target), accept what we have
+              return allGames; // Return early to stop all processing
+            }
+          }
         } else {
-          console.log(`[TheSportsDB ${league}] No events array in response for ${dateStr}:`, data);
+          // No events for this date
+          consecutiveEmptyDays++;
+          console.log(`[TheSportsDB ${league}] No events for ${dateStr} (${consecutiveEmptyDays} consecutive empty days)`);
+          
+          // If we've checked 5 consecutive days with no games, stop early
+          if (consecutiveEmptyDays >= MAX_EMPTY_DAYS) {
+            console.log(`[TheSportsDB ${league}] No games found in ${MAX_EMPTY_DAYS} consecutive days - stopping early`);
+            break; // Stop fetching more days
+          }
         }
+        wasRateLimited = false; // Reset rate limit flag on success
       } else if (response.status === 429) {
-        // Rate limited - stop trying more dates and use what we have
-        console.warn(`Rate limited while fetching ${league.toUpperCase()} games - using available data`);
-        break;
+        // Rate limited - wait much longer and skip this date, continue with next
+        wasRateLimited = true;
+        lastRateLimitTime[league] = Date.now(); // Update league-specific rate limit tracker
+        // Silently wait - rate limiting is expected and handled
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+        
+        // Check if we have enough games before continuing (be flexible - accept if close)
+        if (targetCompletedGames) {
+          const completedCount = allGames.filter(game => {
+            const homeScore = game.intHomeScore;
+            const awayScore = game.intAwayScore;
+            return homeScore !== null && homeScore !== undefined && homeScore !== "" &&
+                   awayScore !== null && awayScore !== undefined && awayScore !== "";
+          }).length;
+          
+          // Accept if we're close to target (within 1 game) or at least 80% of target
+          const minAcceptable = Math.max(targetCompletedGames - 1, Math.floor(targetCompletedGames * 0.8));
+          if (completedCount >= minAcceptable) {
+            // We have enough games - return immediately
+            return allGames; // Return early to stop all processing
+          }
+        }
+        // Continue to next date instead of breaking
+        continue;
+      } else {
+        // Other HTTP errors - silently skip and continue
       }
       
-      // Add a delay between requests to avoid rate limiting (except for last iteration)
-      // Increased delay to 500ms to reduce rate limiting
-      if (i < days - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+      // ALWAYS add a delay between requests to avoid rate limiting
+      // This delay happens even if there are no events, or if it's the last iteration
+      // Increase delay if we were recently rate limited
+      const baseDelay = wasRateLimited ? 2000 : 1500; // 2 seconds if rate limited, 1.5 seconds otherwise
+      if (i < maxDays - 1) {
+        await new Promise(resolve => setTimeout(resolve, baseDelay));
+      } else {
+        // Even on the last iteration, add a small delay to be safe
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err) {
-      // Handle CORS and network errors gracefully
-      if (err.message?.includes("CORS") || err.message?.includes("Failed to fetch")) {
-        // CORS error - stop trying and use what we have
-        console.warn(`CORS error while fetching ${league.toUpperCase()} games - using available data or mock`);
-        break;
+      // Handle other errors silently - will fall back to cached/mock data
+      // Add delay even on errors to avoid hammering the API
+      if (i < maxDays - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
-      // Continue to next date for other errors
-      console.warn(`Failed to fetch ${league.toUpperCase()} games for ${dateStr}:`, err);
     }
+  }
+  
+  // Log final status
+  if (targetCompletedGames) {
+    const finalCompletedCount = allGames.filter(game => {
+      const homeScore = game.intHomeScore;
+      const awayScore = game.intAwayScore;
+      return homeScore !== null && homeScore !== undefined && homeScore !== "" &&
+             awayScore !== null && awayScore !== undefined && awayScore !== "";
+    }).length;
+    console.log(`[TheSportsDB ${league}] Finished fetching: ${allGames.length} total games, ${finalCompletedCount} completed (target: ${targetCompletedGames})`);
+  }
+  
+  // If we were rate limited, add an extra delay before returning to help prevent future rate limits
+  if (wasRateLimited) {
+    // Silently wait - rate limit recovery
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
   
   return allGames;
@@ -283,8 +491,10 @@ export async function fetchNFLGames(teamId = null) {
     // TheSportsDB API for NFL games
     // Base URL: https://www.thesportsdb.com/api/v1/json/123
     // Endpoint: eventsday.php?l=nfl&d={YYYY-MM-DD}
-    // Fetch last 7 days of games to get more results
-    const allGames = await fetchGamesFromTheSportsDB('nfl', 7);
+    // Keep fetching days until we have 15 completed games (or hit 30 day limit)
+    // NFL games are typically Thu/Sun/Mon, so we need to go back further
+    // Reduced to 15 to avoid rate limiting
+    const allGames = await fetchGamesFromTheSportsDB('nfl', 7, 15);
     
     console.log(`[NFL] Fetched ${allGames.length} total games from API`);
     if (allGames.length > 0) {
@@ -320,7 +530,7 @@ export async function fetchNFLGames(teamId = null) {
       return hasHomeScore && hasAwayScore;
     });
     
-    console.log(`[NFL] After filtering, ${completedGames.length} games have scores (out of ${allGames.length} total)`);
+    console.log(`[NFL] Fetched ${allGames.length} total games, ${completedGames.length} have scores`);
     
     // Sort by date (most recent first) using dateEventLocal and strTimeLocal
     const sortedGames = completedGames.sort((a, b) => {
@@ -329,10 +539,10 @@ export async function fetchNFLGames(teamId = null) {
       return dateB - dateA; // Most recent first
     });
     
-    // Return up to 20 games
-    const result = sortedGames.slice(0, 20);
+    // Return up to 15 games (reduced from 20 to avoid rate limiting)
+    const result = sortedGames.slice(0, 15);
     
-    console.log(`[NFL] Returning ${result.length} games to display`);
+    console.log(`[NFL] Returning ${result.length} games to display (requested 15, filtered from ${allGames.length} total)`);
     
     // If no games found, return mock data
     if (result.length === 0) {
@@ -384,8 +594,8 @@ export async function fetchMLBGames(teamId = null) {
     // TheSportsDB API for MLB games
     // Base URL: https://www.thesportsdb.com/api/v1/json/123
     // Endpoint: eventsday.php?l=mlb&d={YYYY-MM-DD}
-    // Fetch last 7 days of games to get more results
-    const allGames = await fetchGamesFromTheSportsDB('mlb', 7);
+    // Keep fetching days until we have 20 completed games (or hit 30 day limit)
+    const allGames = await fetchGamesFromTheSportsDB('mlb', 7, 20);
     
     // If we got some games, process them; otherwise fall back to mock
     if (allGames.length === 0) {
@@ -468,8 +678,9 @@ export async function fetchNHLGames(teamId = null) {
     // TheSportsDB API for NHL games
     // Base URL: https://www.thesportsdb.com/api/v1/json/123
     // Endpoint: eventsday.php?l=nhl&d={YYYY-MM-DD}
-    // Fetch last 7 days of games to get more results
-    const allGames = await fetchGamesFromTheSportsDB('nhl', 7);
+    // Keep fetching days until we have 20 completed games (or hit 30 day limit)
+    // Note: CORS errors may occur - handled gracefully in fetchGamesFromTheSportsDB
+    const allGames = await fetchGamesFromTheSportsDB('nhl', 7, 20);
     
     // If we got some games, process them; otherwise fall back to mock
     if (allGames.length === 0) {
@@ -552,12 +763,13 @@ function isValidTheSportsDBKey(key) {
 
 /**
  * Fetch highlights/videos from TheSportsDB
+ * Fetches until we have ~5 highlights with videos (similar to games fetching)
  */
-export async function fetchHighlights(league, teamName = null) {
+export async function fetchHighlights(league, teamName = null, targetCount = 5) {
   try {
     // Validate league parameter
     if (!league || typeof league !== 'string') {
-      return getMockHighlights(league || "NBA", teamName);
+      return [];
     }
 
     // Check cache first
@@ -569,56 +781,96 @@ export async function fetchHighlights(league, teamName = null) {
 
     // Check if API key is valid (not a placeholder)
     if (!isValidTheSportsDBKey(API_KEYS.THE_SPORTS_DB)) {
-      return getMockHighlights(league, teamName);
+      return [];
     }
     
     const leagueId = getLeagueId(league);
     if (!leagueId) {
-      return getMockHighlights(league, teamName);
+      return [];
     }
 
-    // TheSportsDB API format: /api/v1/json/{apiKey}/endpoint
-    // For league highlights: eventspastleague.php?id={leagueId}
-    // For team search: searchevents.php?e={teamName}
-    let url;
-    if (teamName) {
-      url = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/searchevents.php?e=${encodeURIComponent(teamName)}`;
-    } else {
-      url = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/eventspastleague.php?id=${leagueId}`;
+    const allHighlights = [];
+    const today = new Date();
+    const maxDays = 30; // Cap at 30 days
+    const leagueAbbr = league.toLowerCase();
+    
+    // Strategy: Fetch from recent dates until we have ~5 highlights with videos
+    // Similar to how we fetch games
+    
+    for (let i = 0; i < maxDays; i++) {
+      // Check if we have enough highlights with videos
+      const highlightsWithVideos = allHighlights.filter(event => 
+        event.strVideo && event.strVideo.trim() !== ""
+      );
+      
+      if (highlightsWithVideos.length >= targetCount) {
+        // We have enough highlights - stop fetching
+        break;
+      }
+      
+      try {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        // Use eventsday.php to get events from specific dates
+        const dateUrl = `${API_BASE_URLS.THE_SPORTS_DB}/${API_KEYS.THE_SPORTS_DB}/eventsday.php?l=${leagueAbbr}&d=${dateStr}`;
+        const dateResponse = await fetchWithCorsProxy(dateUrl);
+        
+        if (dateResponse.ok) {
+          const dateData = await dateResponse.json();
+          if (dateData.events && Array.isArray(dateData.events)) {
+            // Add all events (we'll filter for videos later)
+            allHighlights.push(...dateData.events);
+          }
+        }
+        
+        // Add delay between requests to avoid rate limiting
+        if (i < maxDays - 1) {
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+      } catch (err) {
+        // Silently continue to next date
+      }
     }
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      // Handle rate limiting
-      if (response.status === 429) {
-        console.warn("Rate limited - using cached data if available");
-        const staleCache = getCachedData(cacheKey);
-        if (staleCache) {
-          return staleCache;
-        }
-        return getMockHighlights(league, teamName);
+    // Remove duplicates based on idEvent
+    const uniqueHighlights = [];
+    const seenIds = new Set();
+    for (const highlight of allHighlights) {
+      const id = highlight.idEvent || highlight.id;
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        uniqueHighlights.push(highlight);
       }
-      // 401/403/404 are expected when API key is invalid/missing - silently use mock data
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        return getMockHighlights(league, teamName);
-      }
-      throw new Error(`Failed to fetch highlights: ${response.status}`);
     }
-    const data = await response.json();
-    const result = data.events || [];
+    
+    // Filter to only include highlights that have videos
+    const highlightsWithVideos = uniqueHighlights.filter(event => 
+      event.strVideo && event.strVideo.trim() !== ""
+    );
     
     // Ensure all events have the expected structure
-    // TheSportsDB returns events with fields like strEvent, strDescriptionEN, strVideo, strThumb, dateEvent, strLeague
-    const processedEvents = result.map(event => ({
+    const processedEvents = highlightsWithVideos.map(event => ({
       ...event,
       // Ensure description field exists (use strDescriptionEN if available)
       strDescription: event.strDescriptionEN || event.strDescription || event.strDescriptionEN || "",
     }));
     
-    // Cache the result
-    setCachedData(cacheKey, processedEvents);
+    // Sort by date (most recent first)
+    processedEvents.sort((a, b) => {
+      const dateA = a.dateEvent ? new Date(a.dateEvent).getTime() : 0;
+      const dateB = b.dateEvent ? new Date(b.dateEvent).getTime() : 0;
+      return dateB - dateA;
+    });
     
-    return processedEvents;
+    // Return up to targetCount (or a bit more if we're close)
+    const result = processedEvents.slice(0, Math.max(targetCount, Math.floor(targetCount * 1.2)));
+    
+    // Cache the result
+    setCachedData(cacheKey, result);
+    
+    return result;
   } catch (error) {
     // Try to use cache on errors
     const cacheKey = getCacheKey('highlights', league, teamName);
@@ -630,7 +882,8 @@ export async function fetchHighlights(league, teamName = null) {
     if (!error.message?.includes("401") && !error.message?.includes("403") && !error.message?.includes("404")) {
       console.error("Error fetching highlights:", error);
     }
-    return getMockHighlights(league || "NBA", teamName);
+    // Return empty array instead of mock data
+    return [];
   }
 }
 
@@ -847,61 +1100,5 @@ function getMockNHLGames() {
   ];
 }
 
-function getMockHighlights(league, teamName) {
-  const leagueName = league || "NBA";
-  const eventName = teamName ? `${teamName} Game Highlights` : `${leagueName} Game Highlights`;
-  
-  return [
-    {
-      idEvent: "1",
-      strEvent: eventName,
-      strLeague: leagueName,
-      strDescriptionEN: `Recent ${leagueName} highlights and top plays`,
-      strDescription: `Recent ${leagueName} highlights and top plays`,
-      dateEvent: new Date().toISOString().split("T")[0],
-      strVideo: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      strThumb: null, // No thumbnail for mock data
-    },
-    {
-      idEvent: "2",
-      strEvent: `${leagueName} Top Plays of the Week`,
-      strLeague: leagueName,
-      strDescriptionEN: `Best plays and moments from ${leagueName} this week`,
-      strDescription: `Best plays and moments from ${leagueName} this week`,
-      dateEvent: new Date().toISOString().split("T")[0],
-      strVideo: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      strThumb: null, // No thumbnail for mock data
-    },
-    {
-      idEvent: "3",
-      strEvent: `${leagueName} Game Recap`,
-      strLeague: leagueName,
-      strDescriptionEN: `Full game recap and analysis from ${leagueName}.`,
-      strDescription: `Full game recap and analysis from ${leagueName}.`,
-      dateEvent: new Date().toISOString().split("T")[0],
-      strVideo: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      strThumb: null,
-    },
-    {
-      idEvent: "4",
-      strEvent: `${leagueName} Best Moments`,
-      strLeague: leagueName,
-      strDescriptionEN: `Compilation of the best moments from ${leagueName}.`,
-      strDescription: `Compilation of the best moments from ${leagueName}.`,
-      dateEvent: new Date().toISOString().split("T")[0],
-      strVideo: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      strThumb: null,
-    },
-    {
-      idEvent: "5",
-      strEvent: `${leagueName} Highlights Collection`,
-      strLeague: leagueName,
-      strDescriptionEN: `A collection of exciting highlights from ${leagueName}.`,
-      strDescription: `A collection of exciting highlights from ${leagueName}.`,
-      dateEvent: new Date().toISOString().split("T")[0],
-      strVideo: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      strThumb: null,
-    },
-  ];
-}
+// Removed getMockHighlights - highlights now return empty array if none available
 

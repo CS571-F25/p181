@@ -10,7 +10,7 @@ export default function ScheduleCard({ games, league, title = "Upcoming Games" }
       <Card>
         <Card.Body>
           <Card.Title as="h2">{title}</Card.Title>
-          <p className="text-muted">No games scheduled at this time.</p>
+          <p className="text-muted">No games available.</p>
         </Card.Body>
       </Card>
     );

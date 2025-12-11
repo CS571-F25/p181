@@ -24,185 +24,129 @@ export default function Home() {
   const [error, setError] = useState(null);
   const { selectedTeams } = useSelectedTeams();
 
-  // Load highlights based on selected teams or random
+  // Load highlights based on selected league - fetch once per league (5 highlights)
   useEffect(() => {
-    let isMounted = true; // Flag to prevent state updates if component unmounts
+    let isMounted = true;
 
     const loadHighlights = async () => {
       try {
         setLoading(true);
         setError(null);
-        setOtherHighlights([]); // Reset other highlights
+        setOtherHighlights([]);
 
-        if (selectedTeams.length > 0) {
-          // User has selected teams
-          if (league === "") {
-            // All leagues - prioritize favorited teams' highlights first, then show all
-            try {
-              // First, get highlights for favorited teams from all leagues
-              const favoriteHighlightPromises = selectedTeams.map(async (teamKey) => {
-                try {
-                  const [teamAbbr, leagueName] = teamKey.split("-");
-                  if (!leagueName || !teamAbbr) return [];
-                  
-                  const teamData = TEAMS[leagueName]?.find(t => t.abbreviation === teamAbbr);
-                  const teamName = teamData?.name || teamAbbr;
-                  
-                  let highlights = await fetchHighlights(leagueName, teamName);
-                  if (!highlights || highlights.length === 0) {
-                    highlights = await fetchHighlights(leagueName, teamAbbr);
-                  }
-                  
-                  return highlights || [];
-                } catch (err) {
-                  console.error(`Error fetching highlights for ${teamKey}:`, err);
-                  return [];
-                }
-              });
-              
-              // Also get highlights from all leagues
-              const allLeaguePromises = LEAGUES.map(async (leagueName) => {
-                try {
-                  return await fetchHighlights(leagueName);
-                } catch (err) {
-                  console.error(`Error fetching highlights for ${leagueName}:`, err);
-                  return [];
-                }
-              });
-              
-              const [favoriteResults, allResults] = await Promise.all([
-                Promise.all(favoriteHighlightPromises),
-                Promise.all(allLeaguePromises)
-              ]);
-              
-              const favoriteHighlights = favoriteResults.flat().filter(Boolean);
-              const allHighlights = allResults.flat().filter(Boolean);
-              
-              // Remove duplicates and prioritize favorites
-              const favoriteIds = new Set(favoriteHighlights.map(h => h.idEvent || h.id));
-              const otherHighlights = allHighlights.filter(h => !favoriteIds.has(h.idEvent || h.id));
-              
-              if (isMounted) {
-                setHighlights(favoriteHighlights.length > 0 ? favoriteHighlights : allHighlights);
-                setOtherHighlights(favoriteHighlights.length > 0 ? otherHighlights : []);
+        if (league === "") {
+          // All leagues - fetch highlights from all leagues (5 per league)
+          try {
+            const allLeaguePromises = LEAGUES.map(async (leagueName) => {
+              try {
+                return await fetchHighlights(leagueName, null, 5);
+              } catch (err) {
+                console.error(`Error fetching highlights for ${leagueName}:`, err);
+                return [];
               }
-            } catch (err) {
-              console.error(`Error fetching all highlights:`, err);
-              if (isMounted) {
-                setHighlights([]);
+            });
+            const allResults = await Promise.all(allLeaguePromises);
+            const allHighlights = allResults.flat().filter(Boolean);
+            
+            if (isMounted) {
+              // If user has favorite teams, prioritize their highlights
+              if (selectedTeams.length > 0) {
+                const favoriteTeamInfo = selectedTeams.map(teamKey => {
+                  const [teamAbbr, leagueName] = teamKey.split("-");
+                  const teamData = TEAMS[leagueName]?.find(t => t.abbreviation === teamAbbr);
+                  return {
+                    abbreviation: teamAbbr,
+                    name: teamData?.name || teamAbbr,
+                    league: leagueName
+                  };
+                });
+
+                const favoriteHighlights = [];
+                const otherHighlightsList = [];
+
+                allHighlights.forEach(highlight => {
+                  const isFavorite = favoriteTeamInfo.some(team => {
+                    const homeTeam = highlight.strHomeTeam || "";
+                    const awayTeam = highlight.strAwayTeam || "";
+                    const highlightLeague = highlight.strLeague || "";
+                    return team.league === highlightLeague && 
+                           (homeTeam.includes(team.name) || awayTeam.includes(team.name) ||
+                            homeTeam.includes(team.abbreviation) || awayTeam.includes(team.abbreviation));
+                  });
+
+                  if (isFavorite) {
+                    favoriteHighlights.push(highlight);
+                  } else {
+                    otherHighlightsList.push(highlight);
+                  }
+                });
+
+                setHighlights(favoriteHighlights);
+                setOtherHighlights(otherHighlightsList);
+              } else {
+                setHighlights(allHighlights);
                 setOtherHighlights([]);
               }
             }
-          } else {
-            // Specific league - filter selected teams by league
-            const teamsInLeague = selectedTeams.filter(teamKey => {
-              const [, leagueName] = teamKey.split("-");
-              return leagueName === league;
-            });
-            
-            if (teamsInLeague.length > 0) {
-              // Fetch highlights for favorited teams - try both abbreviation and full name
-              const highlightPromises = teamsInLeague.map(async (teamKey) => {
-                try {
-                  const [teamAbbr, leagueName] = teamKey.split("-");
-                  if (!leagueName || !teamAbbr) return [];
-                  
-                  // Get team full name from TEAMS data
-                  const teamData = TEAMS[leagueName]?.find(t => t.abbreviation === teamAbbr);
-                  const teamName = teamData?.name || teamAbbr;
-                  
-                  // Try fetching with team name first, then abbreviation
-                  let highlights = await fetchHighlights(leagueName, teamName);
-                  if (!highlights || highlights.length === 0) {
-                    highlights = await fetchHighlights(leagueName, teamAbbr);
-                  }
-                  
-                  return highlights || [];
-                } catch (err) {
-                  console.error(`Error fetching highlights for ${teamKey}:`, err);
-                  return [];
-                }
-              });
-              const results = await Promise.all(highlightPromises);
-              const favoriteHighlights = results.flat().filter(Boolean);
-              
-              if (isMounted) {
-                setHighlights(favoriteHighlights);
-                
-                // If no highlights for favorited teams, show random highlights from league
-                if (favoriteHighlights.length === 0) {
-                  try {
-                    const randomHighlights = await fetchHighlights(league);
-                    if (isMounted) {
-                      setOtherHighlights(randomHighlights || []);
-                    }
-                  } catch (err) {
-                    console.error(`Error fetching random highlights for ${league}:`, err);
-                    if (isMounted) {
-                      setOtherHighlights([]);
-                    }
-                  }
-                } else {
-                  setOtherHighlights([]);
-                }
-              }
-            } else {
-              // No teams in selected league - show random highlights from that league
-              try {
-                const randomHighlights = await fetchHighlights(league);
-                if (isMounted) {
-                  setHighlights(randomHighlights || []);
-                  setOtherHighlights([]);
-                }
-              } catch (err) {
-                console.error(`Error fetching random highlights for ${league}:`, err);
-                if (isMounted) {
-                  setHighlights([]);
-                  setOtherHighlights([]);
-                }
-              }
+          } catch (err) {
+            console.error(`Error fetching highlights:`, err);
+            if (isMounted) {
+              setHighlights([]);
+              setOtherHighlights([]);
             }
           }
         } else {
-          // No selected teams - show highlights
-          if (league === "") {
-            // All leagues - fetch highlights from ALL leagues
-            try {
-              const allLeaguePromises = LEAGUES.map(async (leagueName) => {
-                try {
-                  return await fetchHighlights(leagueName);
-                } catch (err) {
-                  console.error(`Error fetching highlights for ${leagueName}:`, err);
-                  return [];
-                }
+          // Specific league - fetch 5 highlights for that league
+          try {
+            const leagueHighlights = await fetchHighlights(league, null, 5);
+            
+            if (isMounted) {
+              // If user has favorite teams in this league, prioritize their highlights
+              const teamsInLeague = selectedTeams.filter(teamKey => {
+                const [, leagueName] = teamKey.split("-");
+                return leagueName === league;
               });
-              const allResults = await Promise.all(allLeaguePromises);
-              const allHighlights = allResults.flat().filter(Boolean);
-              if (isMounted) {
-                setHighlights(allHighlights || []);
-                setOtherHighlights([]);
-              }
-            } catch (err) {
-              console.error(`Error fetching highlights:`, err);
-              if (isMounted) {
-                setHighlights([]);
+
+              if (teamsInLeague.length > 0) {
+                const favoriteTeamInfo = teamsInLeague.map(teamKey => {
+                  const [teamAbbr, leagueName] = teamKey.split("-");
+                  const teamData = TEAMS[leagueName]?.find(t => t.abbreviation === teamAbbr);
+                  return {
+                    abbreviation: teamAbbr,
+                    name: teamData?.name || teamAbbr
+                  };
+                });
+
+                const favoriteHighlights = [];
+                const otherHighlightsList = [];
+
+                leagueHighlights.forEach(highlight => {
+                  const homeTeam = highlight.strHomeTeam || "";
+                  const awayTeam = highlight.strAwayTeam || "";
+                  const isFavorite = favoriteTeamInfo.some(team => 
+                    homeTeam.includes(team.name) || awayTeam.includes(team.name) ||
+                    homeTeam.includes(team.abbreviation) || awayTeam.includes(team.abbreviation)
+                  );
+
+                  if (isFavorite) {
+                    favoriteHighlights.push(highlight);
+                  } else {
+                    otherHighlightsList.push(highlight);
+                  }
+                });
+
+                setHighlights(favoriteHighlights);
+                setOtherHighlights(otherHighlightsList);
+              } else {
+                setHighlights(leagueHighlights);
                 setOtherHighlights([]);
               }
             }
-          } else {
-            // Random from selected league
-            try {
-              const randomHighlights = await fetchHighlights(league);
-              if (isMounted) {
-                setHighlights(randomHighlights || []);
-                setOtherHighlights([]);
-              }
-            } catch (err) {
-              console.error(`Error fetching highlights for ${league}:`, err);
-              if (isMounted) {
-                setHighlights([]);
-                setOtherHighlights([]);
-              }
+          } catch (err) {
+            console.error(`Error fetching highlights for ${league}:`, err);
+            if (isMounted) {
+              setHighlights([]);
+              setOtherHighlights([]);
             }
           }
         }
@@ -222,7 +166,6 @@ export default function Home() {
 
     loadHighlights();
 
-    // Cleanup function
     return () => {
       isMounted = false;
     };
@@ -378,45 +321,88 @@ export default function Home() {
           <p className="text-muted">
             Visit the <Link to="/myteams">My Teams</Link> page to select your favorite teams and see personalized highlights here!
           </p>
-        </div>
+      </div>
       )}
 
-      <div className="mb-4">
-        <h2>
-          {selectedTeams.length > 0 
-            ? (league === "" ? "Your Favorite Teams Highlights" : `${league} Highlights`)
-            : (league === "" ? "Featured Highlights" : `${league} Highlights`)
-          }
-        </h2>
-        {loading ? (
-          <LoadingSpinner message="Loading highlights..." />
-        ) : error ? (
-          <ErrorMessage message={error} />
-        ) : highlights.length > 0 ? (
-          <HighlightList highlights={highlights} league={league} />
-        ) : otherHighlights.length > 0 ? (
-          <>
-            <p className="text-muted mb-3">No highlights available for your favorite teams.</p>
-            <h3>Other Teams</h3>
-            <HighlightList highlights={otherHighlights} league={league} />
-          </>
-        ) : (
-          <p className="text-muted">No highlights available at this time.</p>
-        )}
-        
-        {/* Show "Other Teams" section if we have both favorite highlights and other highlights */}
-        {highlights.length > 0 && otherHighlights.length > 0 && (
-          <div className="mt-4">
-            <h3>Other Teams</h3>
-            <HighlightList highlights={otherHighlights} league={league} />
-          </div>
-        )}
-      </div>
-
-      {league && (
+      {/* Layout: Full width when "All leagues", side-by-side when specific league selected */}
+      {league === "" ? (
+        // All leagues selected - full width highlights, no games
         <div className="mb-4">
-          <StatsWidget team="" league={league} />
+          <h2>
+            {selectedTeams.length > 0 
+              ? "Your Favorite Teams Highlights"
+              : "Featured Highlights"
+            }
+          </h2>
+          {loading ? (
+            <LoadingSpinner message="Loading highlights..." />
+          ) : error ? (
+            <ErrorMessage message={error} />
+          ) : highlights.length > 0 ? (
+            <>
+              <HighlightList highlights={highlights} league={league} fullSize={true} />
+              {otherHighlights.length > 0 && (
+                <div className="mt-4">
+                  <h3>Other Teams</h3>
+                  <HighlightList highlights={otherHighlights} league={league} fullSize={true} />
+                </div>
+              )}
+            </>
+          ) : otherHighlights.length > 0 ? (
+            <>
+              <p className="text-muted mb-3">No highlights available for your favorite teams.</p>
+              <h3>Other Teams</h3>
+              <HighlightList highlights={otherHighlights} league={league} fullSize={true} />
+            </>
+          ) : (
+            <p className="text-muted">No highlights available at this time.</p>
+          )}
+        </div>
+      ) : (
+        // Specific league selected - side by side layout
+        <Row>
+          {/* Left Column: Highlights */}
+          <Col md={6}>
+            <div className="mb-4">
+              <h2>
+                {selectedTeams.length > 0 
+                  ? `${league} Highlights`
+                  : `${league} Highlights`
+                }
+              </h2>
+              {loading ? (
+                <LoadingSpinner message="Loading highlights..." />
+              ) : error ? (
+                <ErrorMessage message={error} />
+              ) : highlights.length > 0 ? (
+                <>
+                  <HighlightList highlights={highlights} league={league} fullSize={false} />
+                  {otherHighlights.length > 0 && (
+                    <div className="mt-4">
+                      <h3>Other Teams</h3>
+                      <HighlightList highlights={otherHighlights} league={league} fullSize={false} />
+                    </div>
+                  )}
+                </>
+              ) : otherHighlights.length > 0 ? (
+                <>
+                  <p className="text-muted mb-3">No highlights available for your favorite teams.</p>
+                  <h3>Other Teams</h3>
+                  <HighlightList highlights={otherHighlights} league={league} fullSize={false} />
+                </>
+              ) : (
+                <p className="text-muted">No highlights available at this time.</p>
+              )}
+            </div>
+          </Col>
+
+          {/* Right Column: Games */}
+          <Col md={6}>
+            <div className="mb-4">
+              <StatsWidget team="" league={league} />
     </div>
+          </Col>
+        </Row>
       )}
     </Container>
   );

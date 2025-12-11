@@ -18,7 +18,8 @@ export default function Highlights() {
       try {
         setLoading(true);
         setError(null);
-        const fetchedHighlights = await fetchHighlights(selectedLeague);
+        // Fetch all available highlights (no limit) for the highlights page
+        const fetchedHighlights = await fetchHighlights(selectedLeague, null, 100); // Large limit to get all
         setHighlights(fetchedHighlights);
       } catch (err) {
         setError("Failed to load highlights");
@@ -54,7 +55,7 @@ export default function Highlights() {
       ) : error ? (
         <ErrorMessage message={error} />
       ) : (
-        <HighlightList highlights={highlights} league={selectedLeague} />
+        <HighlightList highlights={highlights} league={selectedLeague} fullSize={true} showAll={true} />
       )}
     </Container>
   );

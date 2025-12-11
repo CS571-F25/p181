@@ -1,11 +1,15 @@
-import { Card, Form, Button, ListGroup } from "react-bootstrap";
+import { Card, Form, Button, ListGroup, Alert } from "react-bootstrap";
 import { useState, useEffect } from "react";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function CommentSection({ highlightId }) {
+  const { currentUser } = useAuth();
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
-  const [authorName, setAuthorName] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Check if user can comment (must be signed in, not a guest)
+  const canComment = currentUser && !currentUser.isGuest;
 
   useEffect(() => {
     // Load comments from localStorage
@@ -17,11 +21,11 @@ export default function CommentSection({ highlightId }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!newComment.trim() || !authorName.trim()) return;
+    if (!newComment.trim() || !canComment) return;
 
     const comment = {
       id: Date.now(),
-      author: authorName,
+      author: currentUser.username, // Use username from auth context
       text: newComment,
       date: new Date().toISOString(),
     };
@@ -69,34 +73,34 @@ export default function CommentSection({ highlightId }) {
               </Button>
             </div>
             
-            <Form onSubmit={handleSubmit} className="mb-4">
-              <Form.Group className="mb-3">
-                <Form.Label htmlFor={`author-${highlightId}`}>Your Name</Form.Label>
-                <Form.Control
-                  id={`author-${highlightId}`}
-                  type="text"
-                  value={authorName}
-                  onChange={(e) => setAuthorName(e.target.value)}
-                  placeholder="Enter your name"
-                  required
-                />
-              </Form.Group>
-              <Form.Group className="mb-3">
-                <Form.Label htmlFor={`comment-${highlightId}`}>Add a Comment</Form.Label>
-                <Form.Control
-                  id={`comment-${highlightId}`}
-                  as="textarea"
-                  rows={3}
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Share your thoughts..."
-                  required
-                />
-              </Form.Group>
-              <Button type="submit" variant="primary">
-                Post Comment
-              </Button>
-            </Form>
+            {canComment ? (
+              <Form onSubmit={handleSubmit} className="mb-4">
+                <Form.Group className="mb-3">
+                  <Form.Label htmlFor={`comment-${highlightId}`}>Add a Comment</Form.Label>
+                  <Form.Control
+                    id={`comment-${highlightId}`}
+                    as="textarea"
+                    rows={3}
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Share your thoughts..."
+                    required
+                  />
+                  <Form.Text className="text-muted">
+                    Commenting as: <strong>{currentUser.username}</strong>
+                  </Form.Text>
+                </Form.Group>
+                <Button type="submit" variant="primary">
+                  Post Comment
+                </Button>
+              </Form>
+            ) : (
+              <Alert variant="info" className="mb-4">
+                {currentUser?.isGuest 
+                  ? "Please sign in or create an account to leave a comment."
+                  : "Please sign in to leave a comment."}
+              </Alert>
+            )}
 
             <ListGroup>
               {comments.length === 0 ? (
